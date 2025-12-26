@@ -1,0 +1,97 @@
+# ============================
+# .NET / Visual Studio
+# ============================
+**/bin/
+**/obj/
+**/out/
+
+# Archivos de usuario
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache
+.vs/
+.vscode/
+
+# Rider
+.idea/
+*.sln.iml
+
+# ============================
+# .NET Core / SDK
+# ============================
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ============================
+# Logs
+# ============================
+*.log
+logs/
+LogFiles/
+
+# ============================
+# Publicaciones
+# ============================
+**/publish/
+**/Publish/
+**/wwwroot/dist/
+
+# ============================
+# Configuración sensible
+# ============================
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.json.user
+secrets.json
+
+# ============================
+# EF Core / Migraciones
+# ============================
+**/Migrations/*.Designer.cs
+**/Migrations/*.csproj
+
+# ============================
+# Testing
+# ============================
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# ============================
+# NuGet
+# ============================
+packages/
+*.nupkg
+*.snupkg
+.nuget/NuGet.Config
+.nuget/NuGet.exe
+
+# ============================
+# OS
+# ============================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Mac
+.DS_Store
+
+# Linux
+*~
+
+# ============================
+# Docker
+# ============================
+docker-compose.override.yml
+
+# ============================
+# Azure / Deploy
+# ============================
+.azure/
