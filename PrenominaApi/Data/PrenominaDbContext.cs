@@ -49,6 +49,9 @@ namespace PrenominaApi.Data
         public DbSet<Document> documents { get; set; }
         public DbSet<SectionRol> sectionRols { get; set; }
         public DbSet<PeriodStatus> periodStatus { get; set; }
+        public DbSet<WorkSchedule> workSchedules { get; set; }
+        public DbSet<IncidentCodeAllowedRoles> incidentCodeAllowedRoles { get; set; }
+        public DbSet<EmployeeAbsenceRequests> employeeAbsenceRequests { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -123,6 +126,7 @@ namespace PrenominaApi.Data
             modelBuilder.Entity<IncidentCode>(entity =>
             {
                 entity.HasOne(ic => ic.IncidentCodeMetadata).WithOne(icm => icm.IncidentCode).HasForeignKey<IncidentCode>(ic => ic.MetadataId);
+                entity.HasMany(ic => ic.IncidentCodeAllowedRoles).WithOne(icar => icar.ItemIncidentCode).HasForeignKey(icr => icr.IncidentCode);
             });
 
             modelBuilder.Entity<SectionRol>(entity =>
@@ -207,6 +211,23 @@ namespace PrenominaApi.Data
             modelBuilder.Entity<RehiredEmployees>(entity =>
             {
                 entity.Property(e => e.Observation).HasColumnName("observation").HasMaxLength(1500);
+            });
+
+            modelBuilder.Entity<IncidentCodeAllowedRoles>(entity =>
+            {
+                entity.HasKey(e => new { e.IncidentCode, e.RoleId });
+                entity.Property(e => e.IncidentCode).IsRequired();
+                entity.Property(e => e.RoleId).IsRequired();
+                entity.HasOne<IncidentCode>().WithMany().HasForeignKey(e => e.IncidentCode);
+                entity.HasOne<Role>().WithMany().HasForeignKey(e => e.RoleId).HasPrincipalKey(r => r.Id);
+            });
+
+            modelBuilder.Entity<EmployeeAbsenceRequests>(entity =>
+            {
+                entity.Property(e => e.IncidentCode).IsRequired();
+                entity.Property(e => e.EmployeeCode).IsRequired();
+                entity.Property(e => e.CompanyId).IsRequired();
+                entity.HasOne(e => e.IncidentCodeItem).WithMany(ic => ic.EmployeeAbsenceRequests).HasForeignKey(e => e.IncidentCode);
             });
 
             var converter = new ValueConverter<IEnumerable<string>, string>(
@@ -555,6 +576,23 @@ namespace PrenominaApi.Data
                         Label = "Vacaciones",
                     },
                 ]);
+
+                context.SaveChanges();
+            }
+
+            if (!context.systemConfigs.Where(s => s.Key == SysConfig.ConfigReports).Any())
+            {
+                context.systemConfigs.Add(new SystemConfig()
+                {
+                    Key = SysConfig.ConfigReports,
+                    Data = JsonConvert.SerializeObject(new SysConfigReports()
+                    {
+                        ConfigDayOffReport = new ConfigDayOffReport()
+                        {
+                            TypeDayOffReport = TypeDayOffReport.Default
+                        }
+                    })
+                });
 
                 context.SaveChanges();
             }

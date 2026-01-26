@@ -62,6 +62,10 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .HasColumnType("nvarchar(450)")
                         .HasColumnName("incident_code");
 
+                    b.Property<string>("MetaIncidentCodeJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("meta_incident_code");
+
                     b.Property<bool>("TimeOffRequest")
                         .HasColumnType("bit")
                         .HasColumnName("time_off_request");
@@ -518,6 +522,61 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.ToTable("document");
                 });
 
+            modelBuilder.Entity("PrenominaApi.Models.Prenomina.EmployeeAbsenceRequests", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("CompanyId")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<int>("EmployeeCode")
+                        .HasColumnType("int")
+                        .HasColumnName("employee_code");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<string>("IncidentCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)")
+                        .HasColumnName("incident_code");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("notes");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentCode");
+
+                    b.ToTable("employee_absence_requests");
+                });
+
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.EmployeeCheckIns", b =>
                 {
                     b.Property<Guid>("Id")
@@ -784,6 +843,10 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .HasColumnType("bit")
                         .HasColumnName("required_approval");
 
+                    b.Property<bool>("RestrictedWithRoles")
+                        .HasColumnType("bit")
+                        .HasColumnName("restricted_with_roles");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("updated_at");
@@ -802,6 +865,40 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .HasFilter("[metadata_id] IS NOT NULL");
 
                     b.ToTable("incident_code");
+                });
+
+            modelBuilder.Entity("PrenominaApi.Models.Prenomina.IncidentCodeAllowedRoles", b =>
+                {
+                    b.Property<string>("IncidentCode")
+                        .HasColumnType("nvarchar(450)")
+                        .HasColumnName("incident_code");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("role_code");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("ItemIncidentCodeCode")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("IncidentCode", "RoleId");
+
+                    b.HasIndex("ItemIncidentCodeCode");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("incident_code_allowed_roles");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.IncidentCodeMetadata", b =>
@@ -940,6 +1037,10 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("deleted_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
 
                     b.Property<int>("NumPeriod")
                         .HasColumnType("int")
@@ -1360,6 +1461,63 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.ToTable("user_supervisor");
                 });
 
+            modelBuilder.Entity("PrenominaApi.Models.Prenomina.WorkSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<TimeOnly?>("BreakEnd")
+                        .HasColumnType("time")
+                        .HasColumnName("break_end");
+
+                    b.Property<TimeOnly?>("BreakStart")
+                        .HasColumnType("time")
+                        .HasColumnName("break_start");
+
+                    b.Property<decimal>("Company")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("company");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("time")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("IsNightShift")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_night_shift");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("label");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("time")
+                        .HasColumnName("start_time");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.Property<decimal>("WorkHours")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("work_hours");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("work_schedule");
+                });
+
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.AssistanceIncident", b =>
                 {
                     b.HasOne("PrenominaApi.Models.Prenomina.User", "User")
@@ -1441,6 +1599,17 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.Navigation("IncidentCodeItem");
                 });
 
+            modelBuilder.Entity("PrenominaApi.Models.Prenomina.EmployeeAbsenceRequests", b =>
+                {
+                    b.HasOne("PrenominaApi.Models.Prenomina.IncidentCode", "IncidentCodeItem")
+                        .WithMany("EmployeeAbsenceRequests")
+                        .HasForeignKey("IncidentCode")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("IncidentCodeItem");
+                });
+
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.IgnoreIncidentToActivity", b =>
                 {
                     b.HasOne("PrenominaApi.Models.Prenomina.IncidentCode", "IncidentCodeItem")
@@ -1500,6 +1669,27 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .HasForeignKey("PrenominaApi.Models.Prenomina.IncidentCode", "MetadataId");
 
                     b.Navigation("IncidentCodeMetadata");
+                });
+
+            modelBuilder.Entity("PrenominaApi.Models.Prenomina.IncidentCodeAllowedRoles", b =>
+                {
+                    b.HasOne("PrenominaApi.Models.Prenomina.IncidentCode", null)
+                        .WithMany()
+                        .HasForeignKey("IncidentCode")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrenominaApi.Models.Prenomina.IncidentCode", "ItemIncidentCode")
+                        .WithMany("IncidentCodeAllowedRoles")
+                        .HasForeignKey("ItemIncidentCodeCode");
+
+                    b.HasOne("PrenominaApi.Models.Prenomina.Role", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ItemIncidentCode");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.SectionRol", b =>
@@ -1586,6 +1776,8 @@ namespace PrenominaApi.Data.Migrations.Prenomina
 
                     b.Navigation("DayOffs");
 
+                    b.Navigation("EmployeeAbsenceRequests");
+
                     b.Navigation("IgnoreIncidentToActivities");
 
                     b.Navigation("IgnoreIncidentToEmployees");
@@ -1593,6 +1785,8 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.Navigation("IgnoreIncidentToTenants");
 
                     b.Navigation("IncidentApprovers");
+
+                    b.Navigation("IncidentCodeAllowedRoles");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.IncidentCodeMetadata", b =>

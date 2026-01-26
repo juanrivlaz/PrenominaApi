@@ -5,5 +5,7 @@
         public required string Label { get; set; }
         public required IEnumerable<CreateSection> Sections { get; set; }
         public required bool CanClosePayrollPeriod { get; set; }
+        public required bool CanModifyCheckins { get; set; }
+        public required bool CanManagePeriods { get; set; }
     }
 }

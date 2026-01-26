@@ -25,7 +25,14 @@ namespace PrenominaApi.Services
             try
             {
                 MethodInfo methodExecute = method;
-                return (TObjectOutput)methodExecute.Invoke(this, [objectInput]);
+                object? result = methodExecute.Invoke(this, new object[] { objectInput! });
+
+                if (result is null)
+                {
+                    throw new InvalidOperationException("El método ejecutado devolvió un valor nulo.");
+                }
+
+                return (TObjectOutput)result;
             }
             catch (Exception ex)
             {

@@ -26,6 +26,8 @@ namespace PrenominaApi.Models.Prenomina
         public bool IsAdditional { get; set; } = false;
         [Column("apply_mode")]
         public IncidentCodeApplyMode ApplyMode { get; set; }
+        [Column("restricted_with_roles")]
+        public bool RestrictedWithRoles { get; set; } = false;
         [Column("metadata_id")]
         public Guid? MetadataId { get; set; }
         [Column("created_at")]
@@ -48,5 +50,9 @@ namespace PrenominaApi.Models.Prenomina
         public virtual IEnumerable<IgnoreIncidentToTenant>? IgnoreIncidentToTenants { get; set; }
         [NotMapped]
         public virtual IEnumerable<IgnoreIncidentToActivity>? IgnoreIncidentToActivities { get; set; }
-    }
+        [NotMapped]
+        public virtual IEnumerable<IncidentCodeAllowedRoles>? IncidentCodeAllowedRoles { get; set; }
+        [NotMapped]
+        public virtual IEnumerable<EmployeeAbsenceRequests>? EmployeeAbsenceRequests { get; set; }
+        }
 }

@@ -1,15 +1,21 @@
 ﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Drawing.Charts;
+using DocumentFormat.OpenXml.ExtendedProperties;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Extensions;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Attendance;
 using PrenominaApi.Models.Dto.Output;
+using PrenominaApi.Models.Dto.Output.Attendance;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
 using PrenominaApi.Services.Prenomina;
 using PrenominaApi.Services.Utilities;
+using PrenominaApi.Services.Utilities.AdditionalPayPdf;
 
 namespace PrenominaApi.Services
 {
@@ -18,34 +24,38 @@ namespace PrenominaApi.Services
         private readonly IBaseService<Employee> _employeeService;
         private readonly IBaseRepository<Payroll> _payrollRepository;
         private readonly IBaseRepository<Key> _keyRepository;
-        private readonly IBaseRepository<Company> _companiesRepository;
+        private readonly IBaseRepository<Models.Company> _companiesRepository;
         private readonly IBaseRepository<Center> _centerRepository;
         private readonly IBaseRepository<Supervisor> _supervisorRepository;
-        private readonly IBaseRepositoryPrenomina<SystemConfig> _systemConfigRepository;
+        private readonly IBaseRepository<Employee> _employeeRepository;
         private readonly IBaseRepositoryPrenomina<AssistanceIncident> _assistanceIncident;
         private readonly IBaseRepositoryPrenomina<IncidentCode> _incidentCodeRepository;
         private readonly IBaseRepositoryPrenomina<EmployeeCheckIns> _employeeCheckIns;
         private readonly IBaseRepositoryPrenomina<PeriodStatus> _perioStatusRepository;
+        private readonly IBaseRepositoryPrenomina<User> _userRepository;
         private readonly IBaseServicePrenomina<Models.Prenomina.Period> _periodRepository;
         private readonly GlobalPropertyService _globalPropertyService;
         private readonly PDFService _pdfService;
+        private readonly AdditionalPayPdfService _additionalPayPdfService;
 
         public AttendanceRecordsService(
             IBaseRepository<AttendanceRecords> repository,
             IBaseRepository<Payroll> payrollRepository,
             IBaseRepository<Key> keyRepository,
-            IBaseRepository<Company> companiesRepository,
+            IBaseRepository<Models.Company> companiesRepository,
             IBaseRepository<Center> centerRepository,
             IBaseRepository<Supervisor> supervisorRepository,
+            IBaseRepository<Employee> employeeRepository,
             IBaseService<Employee> employeeService,
-            IBaseRepositoryPrenomina<SystemConfig> systemConfigRepository,
             IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncident,
             IBaseRepositoryPrenomina<IncidentCode> incidentCodeRepository,
             IBaseRepositoryPrenomina<EmployeeCheckIns> employeeCheckIns,
             IBaseRepositoryPrenomina<PeriodStatus> perioStatusRepository,
+            IBaseRepositoryPrenomina<User> userRepository,
             IBaseServicePrenomina<Models.Prenomina.Period> periodRepository,
             GlobalPropertyService globalPropertyService,
-            PDFService pdfService
+            PDFService pdfService,
+            AdditionalPayPdfService additionalPayPdfService
         ) : base(repository) {
             _employeeService = employeeService;
             _payrollRepository = payrollRepository;
@@ -54,13 +64,15 @@ namespace PrenominaApi.Services
             _companiesRepository = companiesRepository;
             _centerRepository = centerRepository;
             _supervisorRepository = supervisorRepository;
-            _systemConfigRepository = systemConfigRepository;
+            _employeeRepository = employeeRepository;
             _assistanceIncident = assistanceIncident;
             _incidentCodeRepository = incidentCodeRepository;
             _employeeCheckIns = employeeCheckIns;
             _globalPropertyService = globalPropertyService;
             _perioStatusRepository = perioStatusRepository;
+            _userRepository = userRepository;
             _pdfService = pdfService;
+            _additionalPayPdfService = additionalPayPdfService;
         }
 
         public PagedResult<EmployeeAttendancesOutput> ExecuteProcess(GetAttendanceEmployees filter)
@@ -133,6 +145,8 @@ namespace PrenominaApi.Services
                     var orderedChecks = check.Where(x => x.CheckIn != TimeOnly.MinValue).OrderBy(x => x.CheckIn).ToList();
                     var employeeAssistanceIncidents = assistanceIncidents.Where(ai => ai.EmployeeCode == employee.Codigo && ai.Date == check.Key);
                     var defaultIncidentCode = employeeAssistanceIncidents.Where(ai => ai.ItemIncidentCode?.IsAdditional == false && ai.Approved).FirstOrDefault();
+                    var checkEntry = orderedChecks.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
+                    var checkOut = orderedChecks.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
 
                     return new AttendanceOutput
                     {
@@ -140,8 +154,10 @@ namespace PrenominaApi.Services
                         IncidentCode = defaultIncidentCode == null ? "N/A" : defaultIncidentCode.IncidentCode,
                         IncidentCodeLabel = defaultIncidentCode?.ItemIncidentCode?.Label ?? "",
                         TypeNom = check.First().TypeNom,
-                        CheckEntry = orderedChecks.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn)?.CheckIn.ToString("HH:mm:ss"),
-                        CheckOut = orderedChecks.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn)?.CheckIn.ToString("HH:mm:ss"),
+                        CheckEntryId = checkEntry?.Id,
+                        CheckEntry = checkEntry?.CheckIn.ToString("HH:mm:ss"),
+                        CheckOutId = checkOut?.Id,
+                        CheckOut = checkOut?.CheckIn.ToString("HH:mm:ss"),
                         AssistanceIncidents = employeeAssistanceIncidents.Select(ai =>
                         {
                             return new AssistanceIncidentOutput()
@@ -172,11 +188,32 @@ namespace PrenominaApi.Services
 
         public InitAttendanceRecords ExecuteProcess(int companyId)
         {
+            if (String.IsNullOrEmpty(_globalPropertyService.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
             var year = _globalPropertyService.YearOfOperation;
+            var user = _userRepository.GetContextEntity().Include(u => u.Role).Where(u => u.Id == Guid.Parse(_globalPropertyService.UserId)).FirstOrDefault();
+
+            if (user == null)
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            var periods = _periodRepository.GetByFilter((period) => period.Company == companyId && period.Year == year && period.IsActive).OrderBy(p => p.NumPeriod);
+
+            if (user!.Role!.Code == RoleCode.Sudo)
+            {
+                periods = _periodRepository.GetByFilter((period) => period.Company == companyId && period.Year == year).OrderBy(p => p.NumPeriod);
+            }
 
             var payrolls = _payrollRepository.GetByFilter((payroll) => payroll.Company == companyId);
-            var periods = _periodRepository.GetByFilter((period) => period.Company == companyId && period.Year == year).OrderBy(p => p.NumPeriod);
-            var incidentCodes = _incidentCodeRepository.GetAll();
+            var incidentCodes = _incidentCodeRepository.GetContextEntity().Include(ic => ic.IncidentCodeAllowedRoles).Where(ic => 
+                (user!.Role!.Code == RoleCode.Sudo || !ic.RestrictedWithRoles) ? true :
+                ic.IncidentCodeAllowedRoles != null && ic.IncidentCodeAllowedRoles.Where((ar) => ar.RoleId == user!.RoleId).Any()
+            ).ToList();
+
             var periodStatus = _perioStatusRepository.GetAll();
 
             return new InitAttendanceRecords() {
@@ -185,6 +222,183 @@ namespace PrenominaApi.Services
                 IncidentCodes = incidentCodes,
                 PeriodStatus = periodStatus,
             };
+        }
+
+        public IEnumerable<AdditionalPay> ExecuteProcess(GetAdditionalPay getAdditionalPay)
+        {
+            List<Key> keys;
+            var queryKey = _keyRepository.GetContextEntity().Where(k => k.Company == getAdditionalPay.Company && k.TypeNom == getAdditionalPay.TypeNomina);
+
+            if (getAdditionalPay.Tenant != "-999")
+            {
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    queryKey = queryKey.Where(k => k.Center.Trim() == getAdditionalPay.Tenant);
+                }
+                else
+                {
+                    var supervisor = Convert.ToDecimal(getAdditionalPay.Tenant);
+                    queryKey = queryKey.Where(k => k.Supervisor == supervisor);
+                }
+            }
+
+            keys = queryKey.Include(k => k.Tabulator).ToList();
+
+            var employeeCodes = keys.Select(k => k.Codigo).ToList();
+            var year = _globalPropertyService.YearOfOperation;
+            var periodDates = _periodRepository.GetByFilter(
+                (period) => period.TypePayroll == getAdditionalPay.TypeNomina &&
+                period.Company == getAdditionalPay.Company &&
+                period.NumPeriod == getAdditionalPay.NumPeriod &&
+                period.Year == year
+            ).SingleOrDefault();
+
+            if (periodDates is null)
+            {
+                throw new BadHttpRequestException("El periodo seleccionado no es válido.");
+            }
+
+            var incidentCodes = _incidentCodeRepository.GetContextEntity().Where(ic => ic.IsAdditional && ic.WithOperation).Select(ic => ic.Code).ToList();
+            var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(
+                ai => employeeCodes.Contains(ai.EmployeeCode) &&
+                ai.CompanyId == getAdditionalPay.Company &&
+                ai.Date >= periodDates.StartDate &&
+                ai.Date <= periodDates.ClosingDate &&
+                incidentCodes.Contains(ai.IncidentCode) &&
+                ai.MetaIncidentCodeJson != null
+            ).Include(ai => ai.ItemIncidentCode).ThenInclude(ic => ic!.IncidentCodeMetadata).ToList();
+
+            var employees = _employeeRepository.GetContextEntity().Where(
+                item => employeeCodes.Contains(item.Codigo) && item.Company == getAdditionalPay.Company && item.Active == 'S'
+            );
+
+            var result = assistanceIncidents.Select(incident =>
+            {
+                var columnForOperation = incident.ItemIncidentCode?.IncidentCodeMetadata!.ColumnForOperation;
+                var employee = employees.First(e => e.Codigo == incident.EmployeeCode && e.Company == incident.CompanyId);
+                var key = keys.First(k => k.Codigo == incident.EmployeeCode);
+                var baseValue = columnForOperation == ColumnForOperation.Salary ? employee.Salary : incident.MetaIncidentCode!.BaseValue;
+                var operationValue = incident.MetaIncidentCode!.OperationValue;
+                decimal total = 0;
+                string operatorSymbol = "";
+                string operatorText = "";
+
+                switch (incident.ItemIncidentCode!.IncidentCodeMetadata!.MathOperation)
+                {
+                    case MathOperation.Addition:
+                        total = baseValue + operationValue;
+                        operatorSymbol = "add";
+                        operatorText = "Suma";
+                        break;
+                    case MathOperation.Subtraction:
+                        total = baseValue - operationValue;
+                        operatorSymbol = "remove";
+                        operatorText = "Resta";
+                        break;
+                    case MathOperation.Multiplication:
+                        total = baseValue * operationValue;
+                        operatorSymbol = "close";
+                        operatorText = "Multiplicación";
+                        break;
+                    case MathOperation.Division:
+                        if (operationValue != 0)
+                        {
+                            total = baseValue / operationValue;
+                            operatorSymbol = "open_size_2";
+                            operatorText = "División";
+                        }
+                        break;
+                    default:
+                        total = baseValue;
+                        break;
+                }
+
+                return new AdditionalPay
+                {
+                    EmployeeName = $"{employee.Name} {employee.LastName} {employee.MLastName}",
+                    EmployeeCode = employee.Codigo,
+                    EmployeeActivity = key.Tabulator.Activity ?? "",
+                    Company = "",
+                    Date = incident.Date,
+                    IncidentCode = incident.IncidentCode,
+                    Column = columnForOperation == ColumnForOperation.Salary ? "Empleado:Salario" : "Custom",
+                    BaseValue = baseValue,
+                    Operator = operatorSymbol,
+                    OperatorText = operatorText,
+                    OperationValue = operationValue,
+                    Total = total
+                };
+            });
+
+            return result;
+
+        }
+
+        public byte[] ExecuteProcess(DownloadAdditionalPay downloadAdditionalPay)
+        {
+            var company = _companiesRepository.GetById(downloadAdditionalPay.Company);
+
+            var items = ExecuteProcess<GetAdditionalPay, IEnumerable<AdditionalPay>>(new GetAdditionalPay
+            {
+                Company = downloadAdditionalPay.Company,
+                NumPeriod = downloadAdditionalPay.NumPeriod,
+                TypeNomina = downloadAdditionalPay.TypeNomina,
+                Tenant = downloadAdditionalPay.Tenant
+            });
+
+            if (downloadAdditionalPay.TypeFileDownload == TypeFileDownload.PDF)
+            {
+                return _additionalPayPdfService.Generate(items, company?.Name ?? "", $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}");
+            }
+            else
+            {
+                using (var workbook = new XLWorkbook())
+                {
+                    var worksheet = workbook.Worksheets.Add("Pagos Adicionales");
+                    var index = 1;
+
+                    worksheet.Cell($"A{index}").Value = "Empleado";
+                    worksheet.Cell($"B{index}").Value = "Fecha";
+                    worksheet.Cell($"C{index}").Value = "Código de Incidencia";
+                    worksheet.Cell($"D{index}").Value = "Columna";
+                    worksheet.Cell($"E{index}").Value = "Valor Base";
+                    worksheet.Cell($"F{index}").Value = "Operador";
+                    worksheet.Cell($"G{index}").Value = "Valor de Operación";
+                    worksheet.Cell($"H{index}").Value = "Total";
+
+                    index++;
+
+                    worksheet.Column("B").Width = 10;
+                    worksheet.Column("B").Style.NumberFormat.Format = "dd/mm/yyyy";
+                    worksheet.Column("E").Width = 10;
+                    worksheet.Column("E").Style.NumberFormat.Format = "0.00";
+                    worksheet.Column("G").Width = 10;
+                    worksheet.Column("G").Style.NumberFormat.Format = "0.00";
+                    worksheet.Column("H").Width = 10;
+                    worksheet.Column("H").Style.NumberFormat.Format = "0.00";
+
+                    foreach (var employee in items)
+                    {
+                        worksheet.Cell($"A{index}").Value = employee.EmployeeName;
+                        worksheet.Cell($"B{index}").Value = employee.Date.ToString("dd/MM/yyyy");
+                        worksheet.Cell($"C{index}").Value = employee.IncidentCode;
+                        worksheet.Cell($"D{index}").Value = employee.Column;
+                        worksheet.Cell($"E{index}").Value = employee.BaseValue.ToString("C");
+                        worksheet.Cell($"F{index}").Value = employee.OperatorText;
+                        worksheet.Cell($"G{index}").Value = employee.OperationValue.ToString("C");
+                        worksheet.Cell($"H{index}").Value = employee.Total.ToString("C");
+
+                        index++;
+                    }
+
+                    using (var stream = new MemoryStream())
+                    {
+                        workbook.SaveAs(stream);
+
+                        return stream.ToArray();
+                    }
+                }
+            }
         }
 
         public byte[] ExecuteProcess(DownloadAttendanceEmployee downloadAttendance)

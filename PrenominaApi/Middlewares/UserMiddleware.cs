@@ -46,9 +46,11 @@ namespace PrenominaApi.Middlewares
                         context.Items["tenantSelected"] = tenantSelected;
                         context.Items["UserDetails"] = userDetails;
 
+                        var isPathMe = context.Request.Path == "/api/User/me";
+
                         if (userDetails.role?.Code != RoleCode.Sudo)
                         {
-                            if (!userDetails.Companies.Exists(c => c.Id == Convert.ToDecimal(companySelected)))
+                            if (!userDetails.Companies.Exists(c => c.Id == Convert.ToDecimal(companySelected)) && !isPathMe)
                             {
                                 throw new BadHttpRequestException("No tienes acceso a esta empresa");
                             }
@@ -56,7 +58,7 @@ namespace PrenominaApi.Middlewares
                             var existInCenters = userDetails.Centers?.ToList().Exists(c => c.Id.Trim() == tenantSelected) ?? false;
                             var existInSupervisor = userDetails.Supervisors?.ToList().Exists(s => s.Id == Convert.ToDecimal(tenantSelected)) ?? false;
 
-                            if (tenantSelected != "all" && !existInSupervisor && !existInCenters)
+                            if (tenantSelected != "all" && !existInSupervisor && !existInCenters && !isPathMe)
                             {
                                 throw new BadHttpRequestException("No tienes acceso a este centro o supervisor");
                             }

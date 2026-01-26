@@ -32,6 +32,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseServicePrenomina<User> _userService;
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToEmployee> _ignoreIncidentToEmployeeRepository;
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToActivity> _ignoreIncidentToActivityRepository;
+        private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
 
         public DayOffsService(
             GlobalPropertyService globalPropertyService,
@@ -52,7 +53,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<EmployeeCheckIns> employeeCheckInsRepository,
             IBaseServicePrenomina<User> userService,
             IBaseRepositoryPrenomina<IgnoreIncidentToEmployee> ignoreIncidentToEmployeeRepository,
-            IBaseRepositoryPrenomina<IgnoreIncidentToActivity> ignoreIncidentToActivityRepository
+            IBaseRepositoryPrenomina<IgnoreIncidentToActivity> ignoreIncidentToActivityRepository,
+            IBaseServicePrenomina<SystemConfig> sysConfigService
         ) : base(baseRepository) {
             _globalPropertyService = globalPropertyService;
             _keyRepository = keyRepository;
@@ -72,6 +74,7 @@ namespace PrenominaApi.Services.Prenomina
             _kardexRepository = kardexRepository;
             _ignoreIncidentToEmployeeRepository = ignoreIncidentToEmployeeRepository;
             _ignoreIncidentToActivityRepository = ignoreIncidentToActivityRepository;
+            _sysConfigService = sysConfigService;
         }
 
         public DayOff ExecuteProcess(CreateDayOff createDayOff)
@@ -150,7 +153,7 @@ namespace PrenominaApi.Services.Prenomina
             var employeeIgnore = ignoreIncidentEmployee.Select(e => e.EmployeeCode).ToList();
             var activityIgnore = ignoreIncidentActivity.Select(e => e.ActivityId).ToList();
 
-            var dayoff = _repository.GetContextEntity().Include(d => d.IncidentCodeItem).ThenInclude(ic => ic.IncidentCodeMetadata).Where(d => d.Id == Guid.Parse(getWorkedDayOff.DayOffId)).FirstOrDefault();
+            var dayoff = _repository.GetContextEntity().Include(d => d.IncidentCodeItem).ThenInclude(ic => ic == null ? null : ic.IncidentCodeMetadata).Where(d => d.Id == Guid.Parse(getWorkedDayOff.DayOffId)).FirstOrDefault();
 
             if (dayoff == null)
             {
@@ -271,7 +274,7 @@ namespace PrenominaApi.Services.Prenomina
             IQueryable<Key> keys;
             var year = _globalPropertyService.YearOfOperation;
             var period = _periodRepository.GetByFilter(p => p.Company == getWorkedSunday.CompanyId && p.TypePayroll == getWorkedSunday.PayrollId && p.NumPeriod == getWorkedSunday.NumberPeriod && p.Year == year).FirstOrDefault();
-            var dayoff = _repository.GetContextEntity().Include(d => d.IncidentCodeItem).ThenInclude(ic => ic.IncidentCodeMetadata).Where(d => d.IsSunday).FirstOrDefault();
+            var dayoff = _repository.GetContextEntity().Include(d => d.IncidentCodeItem).ThenInclude(ic => ic == null ? null : ic.IncidentCodeMetadata).Where(d => d.IsSunday).FirstOrDefault();
             var ignoreIncidentEmployee = _ignoreIncidentToEmployeeRepository.GetByFilter(ie => ie.Ignore == true && ie.IncidentCode == DefaultIncidentCodes.PrimaDominical);
             var ignoreIncidentActivity = _ignoreIncidentToActivityRepository.GetByFilter(ie => ie.Ignore == true && ie.IncidentCode == DefaultIncidentCodes.PrimaDominical);
             var employeeIgnore = ignoreIncidentEmployee.Select(e => e.EmployeeCode).ToList();
@@ -342,7 +345,13 @@ namespace PrenominaApi.Services.Prenomina
 
             foreach (var item in attendanceRecord)
             {
-                var employee = employees.Where(e => e.Codigo == item.Codigo).First();
+                var employee = employees.Where(e => e.Codigo == item.Codigo).FirstOrDefault();
+
+                if (employee == null)
+                {
+                    continue;
+                }
+
                 var keyEmployee = listKeys.Where(k => k.Codigo == employee.Codigo).FirstOrDefault();
                 var amount = employee.Salary;
 
@@ -451,6 +460,10 @@ namespace PrenominaApi.Services.Prenomina
         public byte[] ExecuteProcess(DownloadWorkedDayoff downloadWorked)
         {
             var items = ExecuteProcess<GetWorkedDayOff, IEnumerable<WorkedDayOffs>>(downloadWorked);
+            var configReport = _sysConfigService.ExecuteProcess<GetConfigReport, SysConfigReports>(new GetConfigReport
+            {
+                TypeConfigReport = TypeConfigReport.DayOffReport,
+            });
 
             if (downloadWorked.TypeFileDownload == TypeFileDownload.PDF)
             {
@@ -480,36 +493,12 @@ namespace PrenominaApi.Services.Prenomina
                 using (var workbook = new XLWorkbook())
                 {
                     var worksheet = workbook.Worksheets.Add("WorkedSunday");
-                    var index = 1;
-
-                    worksheet.Cell($"A{index}").Value = "Codigo";
-                    worksheet.Cell($"B{index}").Value = "conc";
-                    worksheet.Cell($"C{index}").Value = "importe";
-                    worksheet.Cell($"D{index}").Value = "fecha";
-                    worksheet.Cell($"E{index}").Value = "horas";
-
-                    index++;
-
-                    worksheet.Column("A").Width = 8;
-                    worksheet.Column("A").Style.NumberFormat.Format = "0";
-                    worksheet.Column("B").Width = 4;
-                    worksheet.Column("B").Style.NumberFormat.Format = "0";
-                    worksheet.Column("C").Width = 10;
-                    worksheet.Column("C").Style.NumberFormat.Format = "0.00";
-                    worksheet.Column("D").Width = 10;
-                    worksheet.Column("D").Style.NumberFormat.Format = "dd/mm/yyyyy";
-                    worksheet.Column("E").Width = 6;
-                    worksheet.Column("E").Style.NumberFormat.Format = "0.00";
-
-                    foreach (var work in items)
+                    if (configReport.ConfigDayOffReport.TypeDayOffReport == TypeDayOffReport.New)
                     {
-                        worksheet.Cell($"A{index}").Value = work.EmployeeCode;
-                        worksheet.Cell($"B{index}").Value = work.NumConcept;
-                        worksheet.Cell($"C{index}").Value = work.Amount;
-                        worksheet.Cell($"D{index}").Value = work.Date.ToString("dd/MM/yyyy");
-                        worksheet.Cell($"E{index}").Value = 8;
-
-                        index += 1;
+                        worksheet = MakeNewReportDayOff(worksheet, items);
+                    } else
+                    {
+                        worksheet = MakeDefaultReportDayOff(worksheet, items);
                     }
 
                     using (var stream = new MemoryStream())
@@ -737,9 +726,11 @@ namespace PrenominaApi.Services.Prenomina
                 }
 
                 var dates = new List<DateOnly>();
+                var startDate = (DateTime)incident.StartDate;
+
                 for (int i = 0; i < incident.Days; i++)
                 {
-                    dates.Add(DateOnly.FromDateTime((DateTime)incident.StartDate?.AddDays(i)));
+                    dates.Add(DateOnly.FromDateTime(startDate.AddDays(i)));
                 }
 
                 var incidentCode = DefaultIncidentCodes.EG;
@@ -782,9 +773,10 @@ namespace PrenominaApi.Services.Prenomina
                 }
 
                 var dates = new List<DateOnly>();
+                var startDate = (DateTime)kvacation.StartDate;
                 for (int i = 0; i < kvacation.Days; i++)
                 {
-                    dates.Add(DateOnly.FromDateTime((DateTime)kvacation.StartDate?.AddDays(i)));
+                    dates.Add(DateOnly.FromDateTime(startDate.AddDays(i)));
                 }
 
                 var resultIncident = ExecuteProcess<RegisterDaysOff, EmployeeDayOffOutput>(new RegisterDaysOff()
@@ -800,6 +792,72 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             return result;
+        }
+    
+        private IXLWorksheet MakeDefaultReportDayOff(IXLWorksheet worksheet, IEnumerable<WorkedDayOffs> items)
+        {
+            var index = 1;
+
+            worksheet.Cell($"A{index}").Value = "Codigo";
+            worksheet.Cell($"B{index}").Value = "conc";
+            worksheet.Cell($"C{index}").Value = "importe";
+            worksheet.Cell($"D{index}").Value = "fecha";
+            worksheet.Cell($"E{index}").Value = "horas";
+
+            index++;
+
+            worksheet.Column("A").Width = 8;
+            worksheet.Column("A").Style.NumberFormat.Format = "0";
+            worksheet.Column("B").Width = 4;
+            worksheet.Column("B").Style.NumberFormat.Format = "0";
+            worksheet.Column("C").Width = 10;
+            worksheet.Column("C").Style.NumberFormat.Format = "0.00";
+            worksheet.Column("D").Width = 10;
+            worksheet.Column("D").Style.NumberFormat.Format = "dd/mm/yyyyy";
+            worksheet.Column("E").Width = 6;
+            worksheet.Column("E").Style.NumberFormat.Format = "0.00";
+
+            foreach (var work in items)
+            {
+                worksheet.Cell($"A{index}").Value = work.EmployeeCode;
+                worksheet.Cell($"B{index}").Value = work.NumConcept;
+                worksheet.Cell($"C{index}").Value = work.Amount;
+                worksheet.Cell($"D{index}").Value = work.Date.ToString("dd/MM/yyyy");
+                worksheet.Cell($"E{index}").Value = 8;
+
+                index += 1;
+            }
+
+            return worksheet;
+        }
+
+        private IXLWorksheet MakeNewReportDayOff(IXLWorksheet worksheet, IEnumerable<WorkedDayOffs> items)
+        {
+            var index = 1;
+
+            worksheet.Cell($"A{index}").Value = "Codigo";
+            worksheet.Cell($"B{index}").Value = "Conc";
+            worksheet.Cell($"C{index}").Value = "Importe";
+
+            index++;
+
+            worksheet.Column("A").Width = 8;
+            worksheet.Column("A").Style.NumberFormat.Format = "0";
+            worksheet.Column("B").Width = 4;
+            worksheet.Column("B").Style.NumberFormat.Format = "0";
+            worksheet.Column("C").Width = 10;
+            worksheet.Column("C").Style.NumberFormat.Format = "0.00";
+
+            foreach (var work in items)
+            {
+                worksheet.Cell($"A{index}").Value = work.EmployeeCode;
+                worksheet.Cell($"B{index}").Value = work.NumConcept;
+                worksheet.Cell($"C{index}").Value = work.Amount;
+
+                index += 1;
+            }
+
+            return worksheet;
         }
     }
 }

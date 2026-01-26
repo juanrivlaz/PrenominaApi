@@ -3,11 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Attendance;
 using PrenominaApi.Models.Dto.Output;
+using PrenominaApi.Models.Dto.Output.Attendance;
 using PrenominaApi.Models.Prenomina;
+using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Services;
 using PrenominaApi.Services.Prenomina;
-using PrenominaApi.Models.Prenomina.Enums;
 
 namespace PrenominaApi.Controllers
 {
@@ -67,6 +69,45 @@ namespace PrenominaApi.Controllers
             {
                 contentType = "application/pdf";
                 fileName = "attendace_employees.pdf";
+            }
+
+            return this.File(
+                fileContents: result,
+                contentType,
+                fileDownloadName: fileName
+            );
+        }
+
+        [HttpGet("additional-pay")]
+        public ActionResult<IEnumerable<AdditionalPay>> GetAdditionalPay([FromQuery] GetAdditionalPay additionalPay)
+        {
+            var company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            var tenant = HttpContext.Items["tenantSelected"]?.ToString() ?? "";
+            additionalPay.Company = Convert.ToDecimal(company);
+            additionalPay.Tenant = tenant;
+
+            var result = _service.ExecuteProcess<GetAdditionalPay, IEnumerable<AdditionalPay>>(additionalPay);
+
+            return Ok(result);
+        }
+
+        [HttpGet("additional-pay/download")]
+        public IActionResult DownloadAdditionalPay([FromQuery] DownloadAdditionalPay downloadAdditionalPay)
+        {
+            var company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            var tenant = HttpContext.Items["tenantSelected"]?.ToString() ?? "";
+            
+            downloadAdditionalPay.Company = Convert.ToDecimal(company);
+            downloadAdditionalPay.Tenant = tenant;
+
+            var result = _service.ExecuteProcess<DownloadAdditionalPay, byte[]>(downloadAdditionalPay);
+            var contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            var fileName = "additional_pay.xlsx";
+
+            if (downloadAdditionalPay.TypeFileDownload == TypeFileDownload.PDF)
+            {
+                contentType = "application/pdf";
+                fileName = "additional_pay.pdf";
             }
 
             return this.File(
@@ -136,6 +177,30 @@ namespace PrenominaApi.Controllers
             assignDoubleShift.CompanyId = companyId;
 
             var result = _assistanceIncidentService.ExecuteProcess<AssignDoubleShift, AssistanceIncident>(assignDoubleShift);
+
+            return Ok(result);
+        }
+
+        [HttpPatch("change")]
+        public ActionResult<bool> ChangeAttendance([FromBody] ChangeAttendance changeAttendance)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            changeAttendance.UserId = userId;
+            changeAttendance.CompanyId = companyId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<ChangeAttendance, bool>(changeAttendance);
 
             return Ok(result);
         }

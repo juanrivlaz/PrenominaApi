@@ -8,18 +8,18 @@ namespace PrenominaApi.Models
     {
         [Key]
         [Column("codigo")]
-        public decimal Codigo {  get; set; }
+        public decimal Codigo { get; set; }
         [Key]
         [Column("empresa")]
         public decimal Company { get; set; }
         [Column("ap_paterno")]
-        public required string LastName {  get; set; }
+        public required string LastName { get; set; }
         [Column("ap_materno")]
         public required string MLastName { get; set; }
         [Column("nombre")]
         public required string Name { get; set; }
         [Column("sueldo")]
-        public decimal Salary {  get; set; }
+        public decimal Salary { get; set; }
         [Column("fchantigua")]
         public DateTime? SeniorityDate { get; set; }
         [Column("activo")]
@@ -27,5 +27,7 @@ namespace PrenominaApi.Models
 
         [NotMapped]
         public virtual IEnumerable<Key>? Keys { get; set; }
+        [NotMapped]
+        public virtual Key? Key { get; set; }
     }
 }

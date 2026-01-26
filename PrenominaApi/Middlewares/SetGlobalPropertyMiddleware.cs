@@ -38,6 +38,7 @@ namespace PrenominaApi.Middlewares
                     _globalPropertyService.TypeTenant = value?.TypeTenant ?? _globalPropertyService.TypeTenant;
                 }
 
+                _globalPropertyService.UserId = context.User.FindFirst("UserId")?.Value;
 
                 await _next(context);
             }

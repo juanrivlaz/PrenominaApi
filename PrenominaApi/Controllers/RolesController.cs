@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Role;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Services.Prenomina;
 
@@ -30,6 +31,15 @@ namespace PrenominaApi.Controllers
         public ActionResult<Role> Store([FromBody] CreateRole createRole)
         {
             var result = _service.ExecuteProcess<CreateRole, Role>(createRole);
+
+            return Ok(result);
+        }
+
+        [HttpPut("{roleId}")]
+        public ActionResult<Role> Edit(string roleId, [FromBody] EditRole editRole)
+        {
+            editRole.RoleId = roleId;
+            var result = _service.ExecuteProcess<EditRole, Role>(editRole);
 
             return Ok(result);
         }

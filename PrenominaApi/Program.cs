@@ -6,16 +6,22 @@ using Microsoft.OpenApi.Models;
 using PrenominaApi.Configuration;
 using PrenominaApi.Converters;
 using PrenominaApi.Data;
+using PrenominaApi.Filters;
 using PrenominaApi.Helper;
 using PrenominaApi.Jobs;
 using PrenominaApi.Middlewares;
 using PrenominaApi.Models.Dto;
+using PrenominaApi.Services.Excel;
+using PrenominaApi.Services.Excel.Reports;
 using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Utilities.ContractPdf;
 using PrenominaApi.Swagger;
+using PrenominaApi.Hubs;
 using Serilog;
 using System.Globalization;
 using System.Text;
+using PrenominaApi.Services.Utilities.AdditionalPayPdf;
+using PrenominaApi.Services.Utilities.PermissionPdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -83,10 +89,30 @@ builder.Services.AddSingleton<GlobalPropertyService>();
 //Inject Utils Services
 builder.Services.AddSingleton<PDFService>();
 builder.Services.AddSingleton<ContractPdfService>();
+builder.Services.AddSingleton<AdditionalPayPdfService>();
+builder.Services.AddSingleton<PermissionPdfService>();
+
+//Inject Excel Services
+builder.Services.AddScoped<IExcelGenerator, ReportDelaysExcelGenerator>();
+builder.Services.AddScoped<IExcelGenerator, ReportHoursWorkedExcelGenerator>();
+builder.Services.AddScoped<IExcelGenerator, ReportOvertimeExcelGenerator>();
+builder.Services.AddScoped<IExcelGenerator, ReportAttendanceExcelGenerator>();
+builder.Services.AddScoped<IExcelGeneratorFactory, ExcelGeneratorFactory>();
+builder.Services.AddScoped<ExcelReportService>();
 
 //Register Jobs
 builder.Services.AddHostedService<AttendaceJob>();
 builder.Services.AddHostedService<ClockJob>();
+
+//Apply Filter Controls
+builder.Services.AddScoped<CompanyTenantValidationFilter>();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<CompanyTenantFilter>();
+});
+
+//Register Socket Notifications
+builder.Services.AddSignalR();
 
 // Config Cors
 const string CORS_POLICY = "CorsPolicy";
@@ -97,6 +123,7 @@ builder.Services.AddCors(options =>
         corsPolicyBuilder.AllowAnyOrigin();
         corsPolicyBuilder.AllowAnyHeader();
         corsPolicyBuilder.AllowAnyMethod();
+        corsPolicyBuilder.WithExposedHeaders("Content-Disposition");
     });
 });
 
@@ -190,5 +217,8 @@ app.UseMiddleware<UserMiddleware>();
 app.UseMiddleware<SetGlobalPropertyMiddleware>();
 
 app.MapControllers();
+
+//Register Socket Hubs
+app.MapHub<NotificationHub>("/socket-notification");
 
 app.Run();

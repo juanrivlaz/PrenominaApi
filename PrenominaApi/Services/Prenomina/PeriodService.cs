@@ -257,5 +257,35 @@ namespace PrenominaApi.Services.Prenomina
 
             return find;
         }
+
+        public bool ExecuteProcess(ChangePeriodActive changePeriodActive)
+        {
+            var period = _repository.GetById(Guid.Parse(changePeriodActive.PeriodId));
+            if (period == null)
+            {
+                throw new BadHttpRequestException("El periodo no existe.");
+            }
+
+            period.IsActive = changePeriodActive.IsActive;
+            _repository.Update(period);
+
+            var otherPeriod = _repository.GetByFilter(item => item.TypePayroll == period.TypePayroll && item.Year == period.Year && item.Company == period.Company && item.Id != period.Id).ToList();
+
+            foreach (var item in otherPeriod)
+            {
+                item.IsActive = false;
+
+                if (!period.IsActive && item.NumPeriod == period.NumPeriod + 1)
+                {
+                    item.IsActive = true;
+                }
+
+                _repository.Update(item);
+            }
+
+            _repository.Save();
+
+            return true;
+        }
     }
 }

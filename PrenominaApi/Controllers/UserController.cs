@@ -56,7 +56,7 @@ namespace PrenominaApi.Controllers
                 Token = "",
                 TypeTenant = _globalPropertyService.TypeTenant,
                 UserDetails = userDetails!,
-                Username = ""
+                Username = "",
             });
         }
 

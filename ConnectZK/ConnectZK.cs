@@ -284,6 +284,18 @@ namespace ConnectZK
             GC.SuppressFinalize(this);
         }
 
+        public void EnableOrDisableUser(int enrollNumber, bool enable)
+        {
+            try
+            {
+                EnsureConnected();
+                zkemkeeper.EnableUser(1, enrollNumber, 1, 0, enable);
+            } finally
+            {
+                Disconnect();
+            }
+        }
+
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)

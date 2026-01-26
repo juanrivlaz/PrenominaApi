@@ -159,7 +159,7 @@ namespace PrenominaApi.Services.Utilities
                     {
                         var incidentsApply = SysConfig.IncidentApplyToAttendance;
                         List<OnlyIncidentCodeLabel> listIncidents = employeeAttendances
-                        .Where(e => e.Attendances.Any()).SelectMany(e => e.Attendances
+                        .Where(e => e.Attendances != null && e.Attendances.Any()).SelectMany(e => (e.Attendances ?? Enumerable.Empty<AttendanceOutput>())
                         .Where(a => incidentsApply.Contains(a.IncidentCode))
                             .Select(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }))
                         .GroupBy(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }).Select(g => g.First()).ToList();

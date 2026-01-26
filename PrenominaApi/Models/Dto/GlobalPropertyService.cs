@@ -6,5 +6,6 @@ namespace PrenominaApi.Models.Dto
     {
         public int YearOfOperation { get; set; }
         public TypeTenant TypeTenant { get; set; }
+        public string? UserId { get; set; }
     }
 }

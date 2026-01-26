@@ -33,5 +33,7 @@ namespace PrenominaApi.Models
         [NotMapped]
         public virtual Center? CenterItem { get; set; }
         public virtual Supervisor? SupervisorItem { get; set; }
+        [NotMapped]
+        public virtual required Employee Employee { get; set; }
     }
 }

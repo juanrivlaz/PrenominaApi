@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.Web.CodeGenerators.Mvc.Templates.BlazorIdentity.Pages.Manage;
+using Newtonsoft.Json;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -28,6 +29,8 @@ namespace PrenominaApi.Models.Prenomina
         public bool Approved { get; set; }
         [Column("by_user_id")]
         public required Guid ByUserId { get; set; }
+        [Column("meta_incident_code")]
+        public string? MetaIncidentCodeJson { get; set; }
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         [Column("updated_at")]
@@ -40,5 +43,11 @@ namespace PrenominaApi.Models.Prenomina
         public virtual User? User {  get; set; }
         [NotMapped]
         public virtual IEnumerable<AssistanceIncidentApprover>? AssistanceIncidentApprover { get; set; }
+        [NotMapped]
+        public MetaIncidentCode? MetaIncidentCode
+        {
+            get => MetaIncidentCodeJson != null ? JsonConvert.DeserializeObject<MetaIncidentCode>(MetaIncidentCodeJson!) : null;
+            set => MetaIncidentCodeJson = JsonConvert.SerializeObject(value);
+        }
     }
 }

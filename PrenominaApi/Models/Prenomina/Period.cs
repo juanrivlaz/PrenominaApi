@@ -29,6 +29,8 @@ namespace PrenominaApi.Models.Prenomina
         public required DateOnly StartAdminDate { get; set; }
         [Column("closing_admin_date")]
         public required DateOnly ClosingAdminDate { get; set; }
+        [Column("is_active")]
+        public bool IsActive { get; set; } = false;
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         [Column("updated_at")]

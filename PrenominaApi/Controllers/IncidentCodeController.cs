@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Output.IncidentCodes;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Services.Prenomina;
@@ -15,16 +16,19 @@ namespace PrenominaApi.Controllers
     {
         private readonly IBaseServicePrenomina<IncidentCode> _service;
         private readonly IBaseServicePrenomina<User> _userService;
+        private readonly IBaseServicePrenomina<Role> _roleService;
         private readonly GlobalPropertyService _globalPropertyService;
 
         public IncidentCodeController(
             IBaseServicePrenomina<IncidentCode> service,
             IBaseServicePrenomina<User> userService,
+            IBaseServicePrenomina<Role> roleService,
             GlobalPropertyService globalPropertyService
         )
         {
             _service = service;
             _userService = userService;
+            _roleService = roleService;
             _globalPropertyService = globalPropertyService;
         }
 
@@ -37,11 +41,16 @@ namespace PrenominaApi.Controllers
         }
 
         [HttpGet("init")]
-        public ActionResult<IEnumerable<User>> GetIni()
+        public ActionResult<InitForCreateIncidentCode> GetIni()
         {
             var users = _userService.ExecuteProcess<GetUserByPermissionSection, IEnumerable<User>>(new GetUserByPermissionSection() { SectionCode = SectionCode.PendingsAttendanceIncident });
+            var roles = _roleService.GetAll();
 
-            return Ok(users);
+            return Ok(new InitForCreateIncidentCode()
+            {
+                Users = users,
+                Roles = roles
+            });
         }
 
         [HttpPost]

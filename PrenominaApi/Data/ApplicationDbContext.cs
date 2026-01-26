@@ -98,6 +98,7 @@ namespace PrenominaApi.Data
                 entity.Property(property => property.Line).HasColumnType("numeric(18,0)");
                 entity.HasOne(k => k.Tabulator).WithMany(t => t.Keys).HasForeignKey(k => new { k.Company, k.Ocupation });
                 entity.HasOne(k => k.SupervisorItem).WithMany(s => s.Keys).HasForeignKey(k => new { k.Supervisor, k.Company }).HasPrincipalKey(s => new { s.Id, s.Company });
+                entity.HasOne(k => k.Employee).WithOne(e => e.Key).HasForeignKey<Key>(k => new { k.Company, k.Codigo }).HasPrincipalKey<Employee>(e => new { e.Company, e.Codigo });
             });
 
             modelBuilder.Entity<Tabulator>(entity =>

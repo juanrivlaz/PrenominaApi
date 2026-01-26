@@ -10,21 +10,24 @@ namespace PrenominaApi.Services.Prenomina
         public readonly IBaseRepositoryPrenomina<User> _userRepository;
         public readonly IBaseRepositoryPrenomina<IncidentCodeMetadata> _incidentCodeMetadataRepo;
         public readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepo;
+        public readonly IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> _incidentCodeAllowedRolesRepo;
 
         public IncidentCodeService(
             IBaseRepositoryPrenomina<IncidentCode> baseRepository,
             IBaseRepositoryPrenomina<User> userRepository,
             IBaseRepositoryPrenomina<IncidentCodeMetadata> incidentCodeMetadataRepo,
-            IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepo
+            IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepo,
+            IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> incidentCodeAllowedRolesRepo
         ) : base(baseRepository) {
             _userRepository = userRepository;
             _incidentCodeMetadataRepo = incidentCodeMetadataRepo;
             _incidentApproverRepo = incidentApproverRepo;
+            _incidentCodeAllowedRolesRepo = incidentCodeAllowedRolesRepo;
         }
 
         public IEnumerable<IncidentCode> ExecuteProcess(GetAllIncidentCode filter)
         {
-            var result = _repository.GetContextEntity().Include(ic => ic.IncidentApprovers).Include(ic => ic.IncidentCodeMetadata).ToList();
+            var result = _repository.GetContextEntity().Include(ic => ic.IncidentApprovers).Include(ic => ic.IncidentCodeAllowedRoles).Include(ic => ic.IncidentCodeMetadata).ToList();
 
             return result;
         }
@@ -57,6 +60,7 @@ namespace PrenominaApi.Services.Prenomina
                 Notes = incidentCode.Notes,
                 RequiredApproval = incidentCode.RequiredApproval,
                 WithOperation = incidentCode.WithOperation,
+                RestrictedWithRoles = incidentCode.RestrictedWithRoles
             };
 
             if (incidentCode.WithOperation && incidentCode.Metadata is not null)
@@ -81,6 +85,16 @@ namespace PrenominaApi.Services.Prenomina
                 }).ToList();
             }
 
+            if (incidentCode.RestrictedWithRoles && incidentCode.AllowedRoles != null)
+            {
+                newIncidentCode.IncidentCodeAllowedRoles = incidentCode.AllowedRoles.Select(roleId => new IncidentCodeAllowedRoles
+                {
+                    RoleId = Guid.Parse(roleId),
+                    IncidentCode = newIncidentCode.Code,
+                    ItemIncidentCode = newIncidentCode
+                }).ToList();
+            }
+
             var result = _repository.Create(newIncidentCode);
             _repository.Save();
 
@@ -89,105 +103,151 @@ namespace PrenominaApi.Services.Prenomina
 
         public IncidentCode ExecuteProcess(EditIncidentCode incidentCode)
         {
-            var incident = _repository.GetById(incidentCode.Code);
+            using var transaction = _repository.GetDbContext().Database.BeginTransaction();
 
-            if (incident == null)
+            try 
             {
-                throw new BadHttpRequestException("El código de incidencia no se encuentra registrado");
-            }
+                var incident = _repository.GetById(incidentCode.Code);
 
-            if (incidentCode.WithOperation && incidentCode.Metadata == null)
-            {
-                throw new BadHttpRequestException("La metadata es requerida");
-            }
+                if (incident == null)
+                {
+                    throw new BadHttpRequestException("El código de incidencia no se encuentra registrado");
+                }
 
-            if (incidentCode.RequiredApproval && (incidentCode.IncidentApprovers == null || !incidentCode.IncidentApprovers!.Any()))
-            {
-                throw new BadHttpRequestException("Se requiere al menos un usuario aprobador");
-            }
+                if (incidentCode.WithOperation && incidentCode.Metadata == null)
+                {
+                    throw new BadHttpRequestException("La metadata es requerida");
+                }
 
-            incident.ExternalCode = incidentCode.ExternalCode;
-            incident.Label = incidentCode.Label;
-            incident.ApplyMode = incidentCode.ApplyMode;
-            incident.IsAdditional = incidentCode.IsAdditional;
-            incident.Notes = incidentCode.Notes;
-            incident.RequiredApproval = incidentCode.RequiredApproval;
-            incident.WithOperation = incidentCode.WithOperation;
+                if (incidentCode.RequiredApproval && (incidentCode.IncidentApprovers == null || !incidentCode.IncidentApprovers!.Any()))
+                {
+                    throw new BadHttpRequestException("Se requiere al menos un usuario aprobador");
+                }
 
-            var incidentMetadata = _incidentCodeMetadataRepo.GetById(incident.MetadataId!);
+                if (incidentCode.RestrictedWithRoles && (incidentCode.AllowedRoles == null || !incidentCode.AllowedRoles!.Any()))
+                {
+                    throw new BadHttpRequestException("Se requiere al menos un rol permitido");
+                }
 
-            if (incidentCode.WithOperation && incidentCode.Metadata is not null)
-            {
+                incident.ExternalCode = incidentCode.ExternalCode;
+                incident.Label = incidentCode.Label;
+                incident.ApplyMode = incidentCode.ApplyMode;
+                incident.IsAdditional = incidentCode.IsAdditional;
+                incident.Notes = incidentCode.Notes;
+                incident.RequiredApproval = incidentCode.RequiredApproval;
+                incident.WithOperation = incidentCode.WithOperation;
+                incident.RestrictedWithRoles = incidentCode.RestrictedWithRoles;
+
+                var incidentMetadata = _incidentCodeMetadataRepo.GetById(incident.MetadataId!);
+
+                if (incidentCode.WithOperation && incidentCode.Metadata is not null)
+                {
+                    if (incidentMetadata is not null)
+                    {
+                        incidentMetadata.Amount = incidentCode.Metadata.Amount ?? 0;
+                        incidentMetadata.CustomValue = incidentCode.Metadata.Amount;
+                        incidentMetadata.MathOperation = incidentCode.Metadata.MathOperation;
+                        incidentMetadata.ColumnForOperation = incidentCode.Metadata.ColumnForOperation;
+                    }
+                    else
+                    {
+                        incidentMetadata = _incidentCodeMetadataRepo.Create(new IncidentCodeMetadata()
+                        {
+                            Amount = incidentCode.Metadata.Amount ?? 0,
+                            CustomValue = incidentCode.Metadata.Amount,
+                            MathOperation = incidentCode.Metadata.MathOperation,
+                            ColumnForOperation = incidentCode.Metadata.ColumnForOperation,
+                        });
+
+                        incident.MetadataId = incidentMetadata.Id;
+                    }
+                }
+                else if (incidentMetadata is not null)
+                {
+                    _incidentCodeMetadataRepo.Delete(incidentMetadata);
+                    incident.MetadataId = null;
+                }
+
+                var preIncidentApprovers = _incidentApproverRepo.GetByFilter(ia => ia.IncidentCode == incident.Code);
+
+                foreach (var approver in preIncidentApprovers)
+                {
+                    _incidentApproverRepo.Delete(approver);
+                }
+                var incidentApprovers = new List<IncidentApprover>();
+
+                if (incidentCode.RequiredApproval && incidentCode.IncidentApprovers != null)
+                {
+                    var userForApproval = _userRepository.GetByFilter((u) => incidentCode.IncidentApprovers.Contains(u.Id.ToString())).ToList();
+                    incidentApprovers = userForApproval.Select(user => new IncidentApprover
+                    {
+                        UserId = user.Id,
+                        IncidentCode = incident.Code,
+                        User = user,
+                        ItemIncidentCode = incident
+                    }).ToList();
+
+                    foreach (var approver in incidentApprovers)
+                    {
+                        _incidentApproverRepo.Create(approver);
+                    }
+                }
+
+                var allowedRolesPre = _incidentCodeAllowedRolesRepo.GetByFilter(ar => ar.IncidentCode == incident.Code);
+
+                foreach (var role in allowedRolesPre)
+                {
+                    _incidentCodeAllowedRolesRepo.Delete(role);
+                }
+
+                if (incidentCode.RestrictedWithRoles && incidentCode.AllowedRoles != null)
+                {
+                    foreach (var roleId in incidentCode.AllowedRoles)
+                    {
+                        var allowedRole = new IncidentCodeAllowedRoles
+                        {
+                            RoleId = Guid.Parse(roleId),
+                            IncidentCode = incident.Code,
+                            ItemIncidentCode = incident
+                        };
+                        _incidentCodeAllowedRolesRepo.Create(allowedRole);
+                    }
+                }
+
                 if (incidentMetadata is not null)
                 {
-                    incidentMetadata.Amount = incidentCode.Metadata.Amount ?? 0;
-                    incidentMetadata.CustomValue = incidentCode.Metadata.Amount;
-                    incidentMetadata.MathOperation = incidentCode.Metadata.MathOperation;
-                    incidentMetadata.ColumnForOperation = incidentCode.Metadata.ColumnForOperation;
-                } else
-                {
-                    incidentMetadata = _incidentCodeMetadataRepo.Create(new IncidentCodeMetadata()
-                    {
-                        Amount = incidentCode.Metadata.Amount ?? 0,
-                        CustomValue = incidentCode.Metadata.Amount,
-                        MathOperation = incidentCode.Metadata.MathOperation,
-                        ColumnForOperation = incidentCode.Metadata.ColumnForOperation,
-                    });
-
-                    incident.MetadataId = incidentMetadata.Id;
+                    _incidentCodeMetadataRepo.Save();
                 }
-            } else if (incidentMetadata is not null)
-            {
-                _incidentCodeMetadataRepo.Delete(incidentMetadata);
-                incident.MetadataId = null;
-            }
 
-            var preIncidentApprovers = _incidentApproverRepo.GetByFilter(ia => ia.IncidentCode == incident.Code);
-
-            foreach (var approver in preIncidentApprovers)
-            {
-                _incidentApproverRepo.Delete(approver);
-            }
-            var incidentApprovers = new List<IncidentApprover>();
-
-            if (incidentCode.RequiredApproval && incidentCode.IncidentApprovers != null)
-            {
-                var userForApproval = _userRepository.GetByFilter((u) => incidentCode.IncidentApprovers.Contains(u.Id.ToString())).ToList();
-                incidentApprovers = userForApproval.Select(user => new IncidentApprover
+                if ((preIncidentApprovers is not null && preIncidentApprovers.Any()) || incidentApprovers.Any())
                 {
-                    UserId = user.Id,
-                    IncidentCode = incident.Code,
-                    User = user,
-                    ItemIncidentCode = incident
-                }).ToList();
-
-                foreach (var approver in incidentApprovers)
-                {
-                    _incidentApproverRepo.Create(approver);
+                    _incidentApproverRepo.Save();
                 }
-            }
 
-            if (incidentMetadata is not null)
+                if ((allowedRolesPre is not null && allowedRolesPre.Any()) || (incidentCode.RestrictedWithRoles && incidentCode.AllowedRoles != null && incidentCode.AllowedRoles.Any()))
+                {
+                    _incidentCodeAllowedRolesRepo.Save();
+                }
+
+                _repository.Update(incident);
+                _repository.Save();
+
+                incident.IncidentApprovers = incidentApprovers;
+
+                if (incident.MetadataId is not null)
+                {
+                    incident.IncidentCodeMetadata = incidentMetadata;
+                }
+
+                transaction.Commit();
+
+                return incident;
+            }
+            catch
             {
-                _incidentCodeMetadataRepo.Save();
+                transaction.Rollback();
+                throw;
             }
-
-            if ((preIncidentApprovers is not null && preIncidentApprovers.Any()) || incidentApprovers.Any())
-            {
-                _incidentApproverRepo.Save();
-            }
-
-            _repository.Update(incident);
-            _repository.Save();
-
-            incident.IncidentApprovers = incidentApprovers;
-
-            if (incident.MetadataId is not null)
-            {
-                incident.IncidentCodeMetadata = incidentMetadata;
-            }
-
-            return incident;
         }
     }
 }

@@ -121,5 +121,24 @@ namespace PrenominaApi.Controllers
 
             return Ok(result);
         }
+
+        [HttpPatch("change-active")]
+        public ActionResult<bool> ChangeActive([FromBody] ChangePeriodActive changePeriodActive)
+        {
+            var userId = HttpContext.User.FindFirst("UserId")?.Value;
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+
+            changePeriodActive.ByUserId = userId;
+
+            var result = _service.ExecuteProcess<ChangePeriodActive, bool>(changePeriodActive);
+
+            return Ok(result);
+        }
     }
 }

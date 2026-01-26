@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Reports;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories.Prenomina;
@@ -95,6 +96,23 @@ namespace PrenominaApi.Services.Prenomina
             };
         }
 
+        public SysConfigReports ExecuteProcess(GetConfigReport config)
+        {
+            SysConfigReports configResult = new SysConfigReports();
+
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+            if (findObject != null)
+            {
+                var result = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (result != null) {
+                    configResult = result;
+                }
+            }
+
+            return configResult;
+        }
+
         public bool ExecuteProcess(ClockInterval clockInterval)
         {
             var setting = _repository.GetByFilter(sc => sc.Key == SysConfig.ExtractChecks).FirstOrDefault();
@@ -141,6 +159,58 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(setting);
                 _repository.Save();
+            }
+
+            return true;
+        }
+
+        public bool ExecuteProcess(EditTypeDayOffReport editTypeDayOffReport) {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            SysConfigReports configResult = new SysConfigReports()
+            {
+                ConfigDayOffReport = new ConfigDayOffReport()
+                {
+                    TypeDayOffReport = editTypeDayOffReport.TypeDayOffReport,
+                }
+            };
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configResult = parser;
+                    configResult.ConfigDayOffReport.TypeDayOffReport = editTypeDayOffReport.TypeDayOffReport;
+                }
+
+
+                findObject.Data = JsonConvert.SerializeObject(configResult);
+
+                _repository.Update(findObject);
+                _repository.Save();
+            }
+
+            return true;
+        }
+
+        public bool ExecuteProcess(EditMinsToOvertimeReport editMinsToOvertimeReport)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    parser.ConfigOvertimeReport.Mins = editMinsToOvertimeReport.Minutes;
+
+                    findObject.Data = JsonConvert.SerializeObject(parser);
+                    _repository.Update(findObject);
+                    _repository.Save();
+                }
             }
 
             return true;
