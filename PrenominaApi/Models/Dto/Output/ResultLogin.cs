@@ -8,5 +8,6 @@ namespace PrenominaApi.Models.Dto.Output
         public string Username { get; set; } = string.Empty;
         public required UserDetails UserDetails { get; set; }
         public required TypeTenant TypeTenant { get; set; }
+        public required int Year { get; set; }
     }
 }

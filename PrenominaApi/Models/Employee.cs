@@ -13,11 +13,11 @@ namespace PrenominaApi.Models
         [Column("empresa")]
         public decimal Company { get; set; }
         [Column("ap_paterno")]
-        public required string LastName { get; set; }
+        public string? LastName { get; set; } = string.Empty;
         [Column("ap_materno")]
-        public required string MLastName { get; set; }
+        public string? MLastName { get; set; } = string.Empty;
         [Column("nombre")]
-        public required string Name { get; set; }
+        public string? Name { get; set; } = string.Empty;
         [Column("sueldo")]
         public decimal Salary { get; set; }
         [Column("fchantigua")]

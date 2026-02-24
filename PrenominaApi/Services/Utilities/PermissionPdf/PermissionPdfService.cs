@@ -75,7 +75,7 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
                 .SetBorder(Border.NO_BORDER)
                 .SetTextAlignment(TextAlignment.LEFT));
 
-            table.AddCell(new Cell()
+            table.AddCell(new Cell() 
                 .Add(new Paragraph("")
                 .SetFont(font)
                 .SetFontSize(12)
@@ -84,7 +84,7 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
                 .SetTextAlignment(TextAlignment.RIGHT));
 
             table.AddCell(new Cell()
-                .Add(new Paragraph("Puesto:")
+                .Add(new Paragraph("Puesto: ")
                 .Add(new Text(activity).SetFont(fontBold))
                 .SetFont(font)
                 .SetFontSize(12)
@@ -101,7 +101,7 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
                 .SetTextAlignment(TextAlignment.RIGHT));
 
             table.AddCell(new Cell()
-                .Add(new Paragraph("Departamento:")
+                .Add(new Paragraph("Departamento: ")
                 .Add(new Text(department).SetFont(fontBold))
                 .SetFont(font)
                 .SetFontSize(12)

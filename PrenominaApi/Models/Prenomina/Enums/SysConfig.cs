@@ -12,5 +12,6 @@ namespace PrenominaApi.Models.Prenomina.Enums
         public static readonly ImmutableList<string> IncidentApplyToAttendance = ImmutableList.Create("F", "P", "S", "T");
         public const string UserDefault = "system@prenominaapi.com";
         public const string ConfigReports = "Config-Reports";
+        public const string ConfigYear = "Year-Operation";
     }
 }

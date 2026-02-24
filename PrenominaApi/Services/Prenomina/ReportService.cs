@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Reports;
 using PrenominaApi.Models.Dto.Output;
+using PrenominaApi.Models.Dto.Output.Reports;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
@@ -17,6 +19,7 @@ namespace PrenominaApi.Services.Prenomina
     {
         private readonly IBaseRepository<Key> _keyRepository;
         private readonly IBaseRepositoryPrenomina<SystemConfig> _sysConfigRepository;
+        private readonly IBaseRepositoryPrenomina<AssistanceIncident> _assistanceIncidentRepository;
         private readonly IBaseServicePrenomina<Models.Prenomina.Period> _periodRepository;
         private readonly GlobalPropertyService _globalPropertyService;
 
@@ -24,6 +27,7 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<SysConfigReports> baseRepository,
             IBaseServicePrenomina<Models.Prenomina.Period> periodRepository,
             IBaseRepositoryPrenomina<SystemConfig> sysConfigRepository,
+            IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository,
             IBaseRepository<Key> keyRepository,
             GlobalPropertyService globalPropertyService
         ) : base(baseRepository)
@@ -32,6 +36,7 @@ namespace PrenominaApi.Services.Prenomina
             _periodRepository = periodRepository;
             _globalPropertyService = globalPropertyService;
             _sysConfigRepository = sysConfigRepository;
+            _assistanceIncidentRepository = assistanceIncidentRepository;
         }
 
         public IEnumerable<ReportDelaysOutput> ExecuteProcess(GetReportDelays getReport)
@@ -570,6 +575,101 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             return result;
+        }
+    
+        public IEnumerable<ReportIncidencesOutput> ExecuteProcess(GetReportIncidences getReport)
+        {
+            DateOnly StartDate = DateOnly.FromDateTime(DateTime.Now);
+            DateOnly ClosingDate = DateOnly.FromDateTime(DateTime.Now);
+
+            var year = _globalPropertyService.YearOfOperation;
+            var lowerSearch = getReport.Search?.ToLower();
+
+            if (getReport.FilterDates != null)
+            {
+                StartDate = DateOnly.FromDateTime(getReport.FilterDates.Start);
+                ClosingDate = DateOnly.FromDateTime(getReport.FilterDates.End);
+            }
+            else
+            {
+                var periodDates = _periodRepository.GetByFilter(
+                    (period) => period.TypePayroll == getReport.TypeNomina &&
+                    period.Company == getReport.Company &&
+                    period.NumPeriod == getReport.NumPeriod &&
+                    period.Year == year).FirstOrDefault();
+
+                if (periodDates is null)
+                {
+                    throw new BadHttpRequestException("El periodo seleccionado no es válido.");
+                }
+
+                StartDate = periodDates.StartDate;
+                ClosingDate = periodDates.ClosingDate;
+            }
+
+            var employees = _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k =>
+                    k.Company == getReport.Company &&
+                    k.TypeNom == getReport.TypeNomina &&
+                    (
+                        getReport.Tenant == "-999" ||
+                        (_globalPropertyService.TypeTenant == TypeTenant.Department ?
+                            k.Center == getReport.Tenant :
+                            k.Supervisor == Convert.ToDecimal(getReport.Tenant)
+                        )
+                    ) &&
+                    (
+                        string.IsNullOrEmpty(lowerSearch) ||
+                        k.Codigo.ToString().Contains(lowerSearch) ||
+                        (
+                            k.Employee.Name + " " +
+                            k.Employee.LastName + " " +
+                            k.Employee.MLastName
+                        ).ToLower().Contains(lowerSearch)
+                    )
+                ).Select(k => new
+                {
+                    k.Codigo,
+                    FullName = $"{k.Employee.Name} {k.Employee.LastName} {k.Employee.MLastName}",
+                    Department = k.CenterItem != null ? k.CenterItem.DepartmentName : string.Empty,
+                    JobPosition = k.Tabulator.Activity
+                }).ToList();
+
+            if (!employees.Any())
+            {
+                return Enumerable.Empty<ReportIncidencesOutput>();
+            }
+
+            var incidents = _assistanceIncidentRepository.GetContextEntity().AsNoTracking()
+                .Where(ai =>
+                    ai.CompanyId == getReport.Company &&
+                    ai.Date >= StartDate &&
+                    ai.Date <= ClosingDate &&
+                    employees.Select(e => e.Codigo).Contains(ai.EmployeeCode)
+                ).Include(ai => ai.ItemIncidentCode).Include(ai => ai.User).ToList();
+
+            if (!incidents.Any())
+            {
+                return Enumerable.Empty<ReportIncidencesOutput>();
+            }
+
+            return incidents.Select(ai =>
+            {
+               var employee = employees.FirstOrDefault(e => e.Codigo == ai.EmployeeCode);
+
+                return new ReportIncidencesOutput
+                {
+                    Code = ai.EmployeeCode,
+                    Date = ai.Date,
+                    IncidenceCode = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Code : string.Empty,
+                    IncidenceDescription = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Label : string.Empty,
+                    Department = employee?.Department ?? string.Empty,
+                    JobPosition = employee?.JobPosition ?? string.Empty,
+                    CreatedAt = ai.CreatedAt,
+                    FullName = employee?.FullName ?? string.Empty,
+                    UserFullName = $"{ai?.User?.Name ?? string.Empty}"
+                };
+            });
         }
     }
 }

@@ -23,8 +23,6 @@ namespace PrenominaApi.Models
         public int TypeNom {  get; set; }
         [Column("banco")]
         public int Bank { get; set; }
-        [Column("linea")]
-        public decimal Line {  get; set; }
 
         [NotMapped]
         public virtual IEnumerable<Employee>? Employees { get; set; }

@@ -5,6 +5,7 @@
         ReportOvertime,
         ReportHoursWorked,
         ReportDelays,
-        ReportAttendace
+        ReportAttendace,
+        ReportIncidence
     }
 }

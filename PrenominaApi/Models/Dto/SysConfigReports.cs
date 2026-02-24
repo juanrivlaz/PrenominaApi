@@ -4,6 +4,7 @@
     {
         public ConfigDayOffReport ConfigDayOffReport { get; set; }
         public ConfigOvertimeReport ConfigOvertimeReport { get; set; }
+        public ConfigAttendanceReport ConfigAttendanceReport { get; set; }
 
         public SysConfigReports()
         {
@@ -16,6 +17,11 @@
             {
                 TypeDayOffReport = TypeDayOffReport.Default,
             };
+
+            this.ConfigAttendanceReport = new ConfigAttendanceReport()
+            {
+                TypeAttendanceReportPdf = TypeAttendanceReportPdf.Standard
+            };
         }
     }
 
@@ -23,6 +29,12 @@
     {
         Default,
         New
+    }
+
+    public enum TypeAttendanceReportPdf
+    {
+        Standard,
+        Compact
     }
 
     public enum TypeConfigReport
@@ -33,6 +45,11 @@
     public class ConfigDayOffReport
     {
         public TypeDayOffReport TypeDayOffReport { get; set; } = TypeDayOffReport.Default; 
+    }
+
+    public class ConfigAttendanceReport
+    {
+        public TypeAttendanceReportPdf TypeAttendanceReportPdf { get; set; } = TypeAttendanceReportPdf.Standard;
     }
 
     public class ConfigOvertimeReport

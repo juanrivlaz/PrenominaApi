@@ -57,6 +57,7 @@ namespace PrenominaApi.Controllers
                 TypeTenant = _globalPropertyService.TypeTenant,
                 UserDetails = userDetails!,
                 Username = "",
+                Year = _globalPropertyService.YearOfOperation
             });
         }
 

@@ -58,6 +58,22 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPut("type-prenomina-pdf-report")]
+        public ActionResult<bool> UpdatePrenominaPdfReport([FromBody] EditTypePrenominaPdfReport editTypePrenominaPdfReport)
+        {
+            var result = _service.ExecuteProcess<EditTypePrenominaPdfReport, bool>(editTypePrenominaPdfReport);
+
+            return Ok(result);
+        }
+
+        [HttpPut("year")]
+        public ActionResult<bool> UpdateYearSistem([FromBody] EditYearSistem editYearSistem)
+        {
+            var result = _service.ExecuteProcess<EditYearSistem, bool>(editYearSistem);
+
+            return Ok(result);
+        }
+
         [HttpGet("config-reports")]
         public ActionResult<SysConfigReports> GetConfigReports()
         {

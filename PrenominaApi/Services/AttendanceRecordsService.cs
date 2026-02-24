@@ -16,6 +16,7 @@ using PrenominaApi.Repositories.Prenomina;
 using PrenominaApi.Services.Prenomina;
 using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Utilities.AdditionalPayPdf;
+using PrenominaApi.Services.Utilities.AttendancePdf;
 
 namespace PrenominaApi.Services
 {
@@ -33,9 +34,11 @@ namespace PrenominaApi.Services
         private readonly IBaseRepositoryPrenomina<EmployeeCheckIns> _employeeCheckIns;
         private readonly IBaseRepositoryPrenomina<PeriodStatus> _perioStatusRepository;
         private readonly IBaseRepositoryPrenomina<User> _userRepository;
+        private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
         private readonly IBaseServicePrenomina<Models.Prenomina.Period> _periodRepository;
         private readonly GlobalPropertyService _globalPropertyService;
         private readonly PDFService _pdfService;
+        private readonly AttendancePdfService _attendancePdfService;
         private readonly AdditionalPayPdfService _additionalPayPdfService;
 
         public AttendanceRecordsService(
@@ -52,9 +55,11 @@ namespace PrenominaApi.Services
             IBaseRepositoryPrenomina<EmployeeCheckIns> employeeCheckIns,
             IBaseRepositoryPrenomina<PeriodStatus> perioStatusRepository,
             IBaseRepositoryPrenomina<User> userRepository,
+            IBaseServicePrenomina<SystemConfig> sysConfigService,
             IBaseServicePrenomina<Models.Prenomina.Period> periodRepository,
             GlobalPropertyService globalPropertyService,
             PDFService pdfService,
+            AttendancePdfService attendancePdfService,
             AdditionalPayPdfService additionalPayPdfService
         ) : base(repository) {
             _employeeService = employeeService;
@@ -72,7 +77,9 @@ namespace PrenominaApi.Services
             _perioStatusRepository = perioStatusRepository;
             _userRepository = userRepository;
             _pdfService = pdfService;
+            _attendancePdfService = attendancePdfService;
             _additionalPayPdfService = additionalPayPdfService;
+            _sysConfigService = sysConfigService;
         }
 
         public PagedResult<EmployeeAttendancesOutput> ExecuteProcess(GetAttendanceEmployees filter)
@@ -107,6 +114,7 @@ namespace PrenominaApi.Services
             var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(ai => employeeCodes.Contains(ai.EmployeeCode) && ai.CompanyId == filter.Company && ai.Date >= periodDates.StartDate && ai.Date <= periodDates.ClosingDate).Include(ai => ai.ItemIncidentCode).ToList();
 
             var lowerSearch = filter.Search?.ToLower();
+
             PagedResult<Employee> employees = _employeeService.GetWithPagination(
                 filter.Paginator.Page,
                 filter.Paginator.PageSize,
@@ -426,14 +434,17 @@ namespace PrenominaApi.Services
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
             }
 
-            var tenantName = "";
-            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            var tenantName = "Todos";
+            if (downloadAttendance.Tenant != "-999")
             {
-                tenantName = _centerRepository.GetByFilter(c => c.Id.Trim() == downloadAttendance.Tenant && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
-            }
-            else
-            {
-                tenantName = _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!)).FirstOrDefault()?.Name ?? "";
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    tenantName = _centerRepository.GetByFilter(c => c.Id.Trim() == downloadAttendance.Tenant && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
+                }
+                else
+                {
+                    tenantName = _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!)).FirstOrDefault()?.Name ?? "";
+                }
             }
 
             var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(ai =>
@@ -477,13 +488,13 @@ namespace PrenominaApi.Services
                     return new AttendanceOutput
                     {
                         Date = group.Key,
-                        IncidentCode = defaultIncident?.IncidentCode ?? "N/A",
+                        IncidentCode = defaultIncident?.IncidentCode ?? "--:--",
                         IncidentCodeLabel = defaultIncident?.ItemIncidentCode?.Label ?? "",
                         TypeNom = group.First().TypeNom,
                         //CheckEntry = checks.FirstOrDefault(c => c.TypeInOut?.Contains("E") == true || c.TypeInOut?.Contains("1") == true)?.CheckInOut,
                         //CheckOut = checks.LastOrDefault(c => c.TypeInOut?.Contains("S") == true || c.TypeInOut?.Contains("2") == true)?.CheckInOut,
-                        CheckEntry = checks.FirstOrDefault(c => c.EoS == EntryOrExit.Entry)?.CheckIn.ToString("HH:mm:ss"),
-                        CheckOut = checks.LastOrDefault(c => c.EoS == EntryOrExit.Exit)?.CheckIn.ToString("HH:mm:ss"),
+                        CheckEntry = checks.FirstOrDefault(c => c.EoS == EntryOrExit.Entry)?.CheckIn.ToString("HH:mm"),
+                        CheckOut = checks.LastOrDefault(c => c.EoS == EntryOrExit.Exit)?.CheckIn.ToString("HH:mm"),
                         AssistanceIncidents = empIncidents.Select(ai => new AssistanceIncidentOutput
                         {
                             Id = ai.Id,
@@ -513,8 +524,18 @@ namespace PrenominaApi.Services
 
             if (downloadAttendance.TypeFileDownload == TypeFileDownload.PDF)
             {
+                var findObject = _sysConfigService.ExecuteProcess<GetConfigReport, SysConfigReports>(new GetConfigReport { });
+
                 List<DateOnly> listDates = DateService.GetListDate(period.StartDate, period.ClosingDate);
-                return _pdfService.GenerateAttendance(employeeAttendancesResult, company?.Name ?? "", tenantName, $"{period.StartDate} - {period.ClosingDate}", listDates, $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}", $"{payroll.TypeNom} - {payroll.Label}");
+
+                if (findObject.ConfigAttendanceReport.TypeAttendanceReportPdf == TypeAttendanceReportPdf.Standard)
+                {
+                    return _pdfService.GenerateAttendance(employeeAttendancesResult, company?.Name ?? "", tenantName, $"{period.StartDate} - {period.ClosingDate}", listDates, $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}", $"{payroll.TypeNom} - {payroll.Label}");
+                }
+                else
+                {
+                    return _attendancePdfService.Generate(employeeAttendancesResult, company?.Name ?? "", tenantName, $"{period.StartDate} - {period.ClosingDate}", listDates, $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}", $"{payroll.TypeNom} - {payroll.Label}");
+                }
             } else
             {
                 List<DateOnly> listDates = DateService.GetListDate(period.StartDate, period.ClosingDate);

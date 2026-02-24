@@ -238,7 +238,8 @@ namespace PrenominaApi.Services.Prenomina
                         Token = token,
                         Username = findUser.Email,
                         UserDetails = ExecuteProcess<string, UserDetails>(findUser.Id.ToString()),
-                        TypeTenant = typeSystem
+                        TypeTenant = typeSystem,
+                        Year = _globalPropertyService.YearOfOperation
                     };
                 }
             }

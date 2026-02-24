@@ -215,5 +215,66 @@ namespace PrenominaApi.Services.Prenomina
 
             return true;
         }
+
+        public bool ExecuteProcess(EditTypePrenominaPdfReport editTypePrenominaPdfReport)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            SysConfigReports configResult = new SysConfigReports()
+            {
+                ConfigAttendanceReport = new ConfigAttendanceReport()
+                {
+                    TypeAttendanceReportPdf = TypeAttendanceReportPdf.Standard
+                }
+            };
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configResult = parser;
+                    configResult.ConfigAttendanceReport.TypeAttendanceReportPdf = editTypePrenominaPdfReport.TypePrenominaPdfReport;
+                }
+
+
+                findObject.Data = JsonConvert.SerializeObject(configResult);
+
+                _repository.Update(findObject);
+                _repository.Save();
+            }
+
+            return true;
+        }
+
+        public bool ExecuteProcess(EditYearSistem editYear)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigYear);
+
+            SysYearOperation configYear = new SysYearOperation()
+            {
+                TypeData = "Int",
+                Year = editYear.Year
+            };
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysYearOperation>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configYear = parser;
+                    configYear.Year = editYear.Year;
+                }
+
+                findObject.Data = JsonConvert.SerializeObject(configYear);
+
+                _repository.Update(findObject);
+                _repository.Save();
+            }
+
+            return true;
+        }
     }
 }

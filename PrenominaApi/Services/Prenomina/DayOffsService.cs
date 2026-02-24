@@ -32,6 +32,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseServicePrenomina<User> _userService;
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToEmployee> _ignoreIncidentToEmployeeRepository;
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToActivity> _ignoreIncidentToActivityRepository;
+        private readonly IBaseServicePrenomina<EmployeeAbsenceRequests> _employeeAbsenRequestService;
         private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
 
         public DayOffsService(
@@ -54,7 +55,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseServicePrenomina<User> userService,
             IBaseRepositoryPrenomina<IgnoreIncidentToEmployee> ignoreIncidentToEmployeeRepository,
             IBaseRepositoryPrenomina<IgnoreIncidentToActivity> ignoreIncidentToActivityRepository,
-            IBaseServicePrenomina<SystemConfig> sysConfigService
+            IBaseServicePrenomina<SystemConfig> sysConfigService,
+            IBaseServicePrenomina<EmployeeAbsenceRequests> employeeAbsenRequestService
         ) : base(baseRepository) {
             _globalPropertyService = globalPropertyService;
             _keyRepository = keyRepository;
@@ -75,6 +77,7 @@ namespace PrenominaApi.Services.Prenomina
             _ignoreIncidentToEmployeeRepository = ignoreIncidentToEmployeeRepository;
             _ignoreIncidentToActivityRepository = ignoreIncidentToActivityRepository;
             _sysConfigService = sysConfigService;
+            _employeeAbsenRequestService = employeeAbsenRequestService;
         }
 
         public DayOff ExecuteProcess(CreateDayOff createDayOff)
@@ -594,6 +597,11 @@ namespace PrenominaApi.Services.Prenomina
             if (findIncidentCode == null)
             {
                 throw new BadHttpRequestException("El código de incidencia no existe");
+            }
+
+            if (registerDaysOff.RequireAbsenceRequest)
+            {
+                _employeeAbsenRequestService.ExecuteProcess<RegisterDaysOff, bool>(registerDaysOff);
             }
 
             foreach (var date in registerDaysOff.Dates)

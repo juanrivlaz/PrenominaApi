@@ -22,6 +22,7 @@ using System.Globalization;
 using System.Text;
 using PrenominaApi.Services.Utilities.AdditionalPayPdf;
 using PrenominaApi.Services.Utilities.PermissionPdf;
+using PrenominaApi.Services.Utilities.AttendancePdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -91,12 +92,14 @@ builder.Services.AddSingleton<PDFService>();
 builder.Services.AddSingleton<ContractPdfService>();
 builder.Services.AddSingleton<AdditionalPayPdfService>();
 builder.Services.AddSingleton<PermissionPdfService>();
+builder.Services.AddSingleton<AttendancePdfService>();
 
 //Inject Excel Services
 builder.Services.AddScoped<IExcelGenerator, ReportDelaysExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportHoursWorkedExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportOvertimeExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportAttendanceExcelGenerator>();
+builder.Services.AddScoped<IExcelGenerator, ReportIncidenceExcelGenerator>();
 builder.Services.AddScoped<IExcelGeneratorFactory, ExcelGeneratorFactory>();
 builder.Services.AddScoped<ExcelReportService>();
 
@@ -120,9 +123,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: CORS_POLICY, corsPolicyBuilder =>
     {
-        corsPolicyBuilder.AllowAnyOrigin();
+        corsPolicyBuilder.WithOrigins(
+            builder.Configuration.GetValue<string>("baseUrls:webBase") ?? "http://localhost:4200"
+        );
         corsPolicyBuilder.AllowAnyHeader();
         corsPolicyBuilder.AllowAnyMethod();
+        corsPolicyBuilder.AllowCredentials();
+
         corsPolicyBuilder.WithExposedHeaders("Content-Disposition");
     });
 });

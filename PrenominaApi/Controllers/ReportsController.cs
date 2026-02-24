@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Mvc;
 using PrenominaApi.Filters;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Models.Dto.Input.Reports;
 using PrenominaApi.Models.Dto.Output;
+using PrenominaApi.Models.Dto.Output.Reports;
 using PrenominaApi.Services.Excel;
 using PrenominaApi.Services.Prenomina;
 
@@ -20,7 +22,8 @@ namespace PrenominaApi.Controllers
         public ReportsController(
             IBaseServicePrenomina<SysConfigReports> service,
             ExcelReportService excelReportService
-        ) {
+        )
+        {
             _service = service;
             _excelReportService = excelReportService;
         }
@@ -51,6 +54,14 @@ namespace PrenominaApi.Controllers
         public ActionResult<IEnumerable<ReportAttendanceOutput>> GetReportAttendance([FromQuery] GetReportAttendance getReport)
         {
             var result = _service.ExecuteProcess<GetReportAttendance, IEnumerable<ReportAttendanceOutput>>(getReport);
+
+            return Ok(result);
+        }
+
+        [HttpGet("incidences")]
+        public ActionResult<IEnumerable<ReportIncidencesOutput>> GetIncidences([FromQuery] GetReportIncidences getReport)
+        {
+            var result = _service.ExecuteProcess<GetReportIncidences, IEnumerable<ReportIncidencesOutput>>(getReport);
 
             return Ok(result);
         }
@@ -117,6 +128,24 @@ namespace PrenominaApi.Controllers
             var excel = _excelReportService.Generate(
                 ExcelReportType.ReportAttendace,
                 new ExcelContext { reportAttendances = result }
+            );
+
+            var contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            return this.File(
+                fileContents: excel.Content,
+                contentType,
+                fileDownloadName: excel.FileName
+            );
+        }
+
+        [HttpGet("incidences/download-excel")]
+        public IActionResult DownloadExcelReportIncidences([FromQuery] GetReportIncidences getReport)
+        {
+            var result = _service.ExecuteProcess<GetReportIncidences, IEnumerable<ReportIncidencesOutput>>(getReport);
+            var excel = _excelReportService.Generate(
+                ExcelReportType.ReportIncidence,
+                new ExcelContext { reportIncidence = result }
             );
 
             var contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
