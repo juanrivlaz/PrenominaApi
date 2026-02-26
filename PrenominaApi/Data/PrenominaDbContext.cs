@@ -52,6 +52,8 @@ namespace PrenominaApi.Data
         public DbSet<WorkSchedule> workSchedules { get; set; }
         public DbSet<IncidentCodeAllowedRoles> incidentCodeAllowedRoles { get; set; }
         public DbSet<EmployeeAbsenceRequests> employeeAbsenceRequests { get; set; }
+        public DbSet<OvertimeAccumulation> overtimeAccumulations { get; set; }
+        public DbSet<OvertimeMovementLog> overtimeMovementLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -228,6 +230,20 @@ namespace PrenominaApi.Data
                 entity.Property(e => e.EmployeeCode).IsRequired();
                 entity.Property(e => e.CompanyId).IsRequired();
                 entity.HasOne(e => e.IncidentCodeItem).WithMany(ic => ic.EmployeeAbsenceRequests).HasForeignKey(e => e.IncidentCode);
+            });
+
+            modelBuilder.Entity<OvertimeAccumulation>(entity =>
+            {
+                entity.HasIndex(oa => new { oa.EmployeeCode, oa.CompanyId }).IsUnique();
+                entity.HasMany(oa => oa.MovementLogs).WithOne(ml => ml.OvertimeAccumulation).HasForeignKey(ml => ml.OvertimeAccumulationId);
+            });
+
+            modelBuilder.Entity<OvertimeMovementLog>(entity =>
+            {
+                entity.HasIndex(ml => new { ml.EmployeeCode, ml.SourceDate });
+                entity.HasIndex(ml => new { ml.CompanyId, ml.CreatedAt });
+                entity.HasOne(ml => ml.User).WithMany().HasForeignKey(ml => ml.ByUserId);
+                entity.HasOne(ml => ml.RelatedMovement).WithMany().HasForeignKey(ml => ml.RelatedMovementId);
             });
 
             var converter = new ValueConverter<IEnumerable<string>, string>(

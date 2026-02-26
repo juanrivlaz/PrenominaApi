@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -20,6 +21,8 @@ using PrenominaApi.Hubs;
 using Serilog;
 using System.Globalization;
 using System.Text;
+using System.Threading.RateLimiting;
+using PrenominaApi.Services;
 using PrenominaApi.Services.Utilities.AdditionalPayPdf;
 using PrenominaApi.Services.Utilities.PermissionPdf;
 using PrenominaApi.Services.Utilities.AttendancePdf;
@@ -31,24 +34,50 @@ var cultureInfo = new CultureInfo("es-MX");
 CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
 CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
 
-// Configuration DBContext
-var dbServer = Environment.GetEnvironmentVariable("SERVER_DB", EnvironmentVariableTarget.Machine);
-var dbName = Environment.GetEnvironmentVariable("NAME_APSI_DB", EnvironmentVariableTarget.Machine);
-var dbNamePrenomina = Environment.GetEnvironmentVariable("NAME_PRENOMINA_DB", EnvironmentVariableTarget.Machine);
-var dbUser = Environment.GetEnvironmentVariable("USER_DB", EnvironmentVariableTarget.Machine);
-var dbPassword = Environment.GetEnvironmentVariable("PASSWORD_DB", EnvironmentVariableTarget.Machine);
+// Configuration DBContext - Usar variables de entorno (NUNCA hardcodear credenciales)
+var dbServer = Environment.GetEnvironmentVariable("SERVER_DB", EnvironmentVariableTarget.Machine)
+    ?? Environment.GetEnvironmentVariable("SERVER_DB");
+var dbName = Environment.GetEnvironmentVariable("NAME_APSI_DB", EnvironmentVariableTarget.Machine)
+    ?? Environment.GetEnvironmentVariable("NAME_APSI_DB");
+var dbNamePrenomina = Environment.GetEnvironmentVariable("NAME_PRENOMINA_DB", EnvironmentVariableTarget.Machine)
+    ?? Environment.GetEnvironmentVariable("NAME_PRENOMINA_DB");
+var dbUser = Environment.GetEnvironmentVariable("USER_DB", EnvironmentVariableTarget.Machine)
+    ?? Environment.GetEnvironmentVariable("USER_DB");
+var dbPassword = Environment.GetEnvironmentVariable("PASSWORD_DB", EnvironmentVariableTarget.Machine)
+    ?? Environment.GetEnvironmentVariable("PASSWORD_DB");
 
-var connection = $"Server={dbServer};Database={dbName};User Id={dbUser};Password={dbPassword};TrustServerCertificate=True;";
-var connectionPrenomina = $"Server={dbServer};Database={dbNamePrenomina};User Id={dbUser};Password={dbPassword};TrustServerCertificate=True;";
+// Validar que las variables de entorno estén configuradas
+if (string.IsNullOrEmpty(dbServer) || string.IsNullOrEmpty(dbName) ||
+    string.IsNullOrEmpty(dbUser) || string.IsNullOrEmpty(dbPassword))
+{
+    // En desarrollo, usar appsettings como fallback
+    if (builder.Environment.IsDevelopment())
+    {
+        Log.Warning("Database environment variables not set. Using appsettings.json (development only).");
+        builder.Services.AddDbContext<ApplicationDbContext>(options =>
+            options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+        builder.Services.AddDbContext<PrenominaDbContext>(options =>
+            options.UseSqlServer(builder.Configuration.GetConnectionString("PrenominaConnection")));
+    }
+    else
+    {
+        throw new InvalidOperationException(
+            "Database environment variables (SERVER_DB, NAME_APSI_DB, NAME_PRENOMINA_DB, USER_DB, PASSWORD_DB) must be set in production.");
+    }
+}
+else
+{
+    // Construir connection strings con Encrypt=True para producción
+    var encryptOption = builder.Environment.IsProduction() ? "Encrypt=True;" : "TrustServerCertificate=True;";
+    var connection = $"Server={dbServer};Database={dbName};User Id={dbUser};Password={dbPassword};{encryptOption}";
+    var connectionPrenomina = $"Server={dbServer};Database={dbNamePrenomina};User Id={dbUser};Password={dbPassword};{encryptOption}";
 
-//builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-//builder.Services.AddDbContext<PrenominaDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("PrenominaConnection")));
-
-builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(
-    connection,
-    sqlOptions => sqlOptions.UseCompatibilityLevel(120)
-));
-builder.Services.AddDbContext<PrenominaDbContext>(options => options.UseSqlServer(connectionPrenomina));
+    builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(
+        connection,
+        sqlOptions => sqlOptions.UseCompatibilityLevel(120)
+    ));
+    builder.Services.AddDbContext<PrenominaDbContext>(options => options.UseSqlServer(connectionPrenomina));
+}
 
 // Config TimeZone
 var timeZone = builder.Configuration.GetValue<string>("TimeZone") ?? "Central Standard Time (Mexico)";
@@ -57,47 +86,65 @@ builder.Services.AddSingleton<TimeZoneInfo>(TimeZoneInfo.FindSystemTimeZoneById(
 // Dependency injection
 ServicePool.RegistryService(builder);
 
-// Config Base Urls 
+// Config Base Urls
 var configBaseUrl = builder.Configuration.GetRequiredSection(BaseUrlConfiguration.CONFIG_NAME);
 builder.Services.Configure<BaseUrlConfiguration>(configBaseUrl);
 var baseUrlConfig = configBaseUrl.Get<BaseUrlConfiguration>();
 
-// Config JWT
-var key = Encoding.ASCII.GetBytes(AuthorizationConstants.JWT_SECRET_KEY);
+// Config JWT - Obtener clave de variable de entorno
+string jwtKey;
+try
+{
+    jwtKey = AuthorizationConstants.GetJwtSecretKey();
+}
+catch (InvalidOperationException) when (builder.Environment.IsDevelopment())
+{
+    // Fallback solo en desarrollo
+    Log.Warning("JWT_SECRET_KEY not set. Using fallback key (development only).");
+#pragma warning disable CS0618 // Type or member is obsolete
+    jwtKey = AuthorizationConstants.JWT_SECRET_KEY;
+#pragma warning restore CS0618
+}
+
+var key = Encoding.ASCII.GetBytes(jwtKey);
 builder.Services.AddAuthentication(config =>
 {
     config.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
 }).AddJwtBearer(config =>
 {
-    config.RequireHttpsMetadata = false;
-    config.SaveToken = true;
+    config.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+    config.SaveToken = false; // No guardar token en AuthenticationProperties (más seguro)
     config.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1), // Reducir ventana de tiempo
         ValidIssuer = builder.Configuration.GetValue<string>("Jwt:Issuer"),
         ValidAudience = builder.Configuration.GetValue<string>("Jwt:Issuer"),
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration.GetValue<string>("Jwt:Key") ?? ""))
-
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
 
-//Config PasswordHasher
+// Config PasswordHasher
 builder.Services.AddSingleton<IPasswordHasher<HasPassword>, CustomPasswordHasher>();
 
-//Config Global Properties
-builder.Services.AddSingleton<GlobalPropertyService>();
+// Config Memory Cache
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICacheService, CacheService>();
 
-//Inject Utils Services
+// Config Global Properties - Cambiar a Scoped para evitar memory leaks
+builder.Services.AddScoped<GlobalPropertyService>();
+
+// Inject Utils Services
 builder.Services.AddSingleton<PDFService>();
 builder.Services.AddSingleton<ContractPdfService>();
 builder.Services.AddSingleton<AdditionalPayPdfService>();
 builder.Services.AddSingleton<PermissionPdfService>();
 builder.Services.AddSingleton<AttendancePdfService>();
 
-//Inject Excel Services
+// Inject Excel Services
 builder.Services.AddScoped<IExcelGenerator, ReportDelaysExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportHoursWorkedExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportOvertimeExcelGenerator>();
@@ -106,34 +153,88 @@ builder.Services.AddScoped<IExcelGenerator, ReportIncidenceExcelGenerator>();
 builder.Services.AddScoped<IExcelGeneratorFactory, ExcelGeneratorFactory>();
 builder.Services.AddScoped<ExcelReportService>();
 
-//Register Jobs
+// Register Jobs
 builder.Services.AddHostedService<AttendaceJob>();
 builder.Services.AddHostedService<ClockJob>();
 
-//Apply Filter Controls
+// Apply Filter Controls
 builder.Services.AddScoped<CompanyTenantValidationFilter>();
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<CompanyTenantFilter>();
 });
 
-//Register Socket Notifications
+// Register Socket Notifications
 builder.Services.AddSignalR();
 
-// Config Cors
+// Config Rate Limiting
+builder.Services.AddRateLimiter(options =>
+{
+    // Rate limit global
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 10
+            });
+    });
+
+    // Rate limit específico para login (más restrictivo)
+    options.AddFixedWindowLimiter("login", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 5;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 2;
+    });
+
+    // Respuesta cuando se excede el límite
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            Message = "Demasiadas solicitudes. Por favor, espere un momento antes de intentar nuevamente.",
+            RetryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                ? retryAfter.TotalSeconds
+                : 60
+        }, cancellationToken);
+    };
+});
+
+// Config Cors - Más restrictivo
 const string CORS_POLICY = "CorsPolicy";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: CORS_POLICY, corsPolicyBuilder =>
     {
-        corsPolicyBuilder.WithOrigins(
-            builder.Configuration.GetValue<string>("baseUrls:webBase") ?? "http://localhost:4200"
+        var allowedOrigins = builder.Configuration.GetValue<string>("baseUrls:webBase") ?? "http://localhost:4200";
+
+        corsPolicyBuilder.WithOrigins(allowedOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries));
+
+        // Restringir headers permitidos
+        corsPolicyBuilder.WithHeaders(
+            "Content-Type",
+            "Authorization",
+            "company",
+            "tenant",
+            "X-Requested-With",
+            "Accept"
         );
-        corsPolicyBuilder.AllowAnyHeader();
-        corsPolicyBuilder.AllowAnyMethod();
+
+        // Restringir métodos HTTP
+        corsPolicyBuilder.WithMethods("GET", "POST", "PUT", "DELETE", "PATCH");
+
         corsPolicyBuilder.AllowCredentials();
 
-        corsPolicyBuilder.WithExposedHeaders("Content-Disposition");
+        // Headers expuestos al cliente
+        corsPolicyBuilder.WithExposedHeaders("Content-Disposition", "X-Total-Count");
     });
 });
 
@@ -141,15 +242,15 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-    options.JsonSerializerOptions.WriteIndented = true;
-    options.JsonSerializerOptions.Converters.Add(new DateOnlyJsonConverter()); // proceses format dateonly
+    options.JsonSerializerOptions.WriteIndented = builder.Environment.IsDevelopment();
+    options.JsonSerializerOptions.Converters.Add(new DateOnlyJsonConverter());
 });
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SchemaFilter<DateOnlySchemaFilter>(); // custom format dateonly
+    options.SchemaFilter<DateOnlySchemaFilter>();
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
     {
         Title = "Prenomina Api",
@@ -166,24 +267,24 @@ builder.Services.AddSwaggerGen(options =>
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
         {
+            new OpenApiSecurityScheme
             {
-                new OpenApiSecurityScheme
+                Reference = new OpenApiReference
                 {
-                    Reference = new OpenApiReference
-                    {
-                        Type = ReferenceType.SecurityScheme,
-                        Id = "Bearer"
-                    }
-                },
-                new string[] {}
-            }
-        });
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 
     options.CustomSchemaIds(type => type.FullName);
 });
 
-//Config Log Service
+// Config Log Service
 Log.Logger = new LoggerConfiguration()
     .WriteTo.File("logs/prenomina-api.log", rollingInterval: RollingInterval.Day)
     .CreateLogger();
@@ -208,15 +309,23 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-// Config Exception Handling
-app.UseMiddleware<ExceptionMiddleware>();
-
-app.UseCors(CORS_POLICY);
-
+// Usar HTTPS y HSTS en producción
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
+    app.UseHsts();
 }
+
+// Agregar headers de seguridad (antes de otros middlewares)
+app.UseSecurityHeaders();
+
+// Config Exception Handling
+app.UseMiddleware<ExceptionMiddleware>();
+
+// Rate Limiting
+app.UseRateLimiter();
+
+app.UseCors(CORS_POLICY);
 
 app.UseAuthentication();
 
@@ -228,7 +337,7 @@ app.UseMiddleware<SetGlobalPropertyMiddleware>();
 
 app.MapControllers();
 
-//Register Socket Hubs
+// Register Socket Hubs
 app.MapHub<NotificationHub>("/socket-notification");
 
 app.Run();

@@ -1,8 +1,5 @@
-﻿using ClosedXML.Excel;
-using DocumentFormat.OpenXml.Drawing.Charts;
-using DocumentFormat.OpenXml.ExtendedProperties;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Extensions;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
@@ -40,6 +37,7 @@ namespace PrenominaApi.Services
         private readonly PDFService _pdfService;
         private readonly AttendancePdfService _attendancePdfService;
         private readonly AdditionalPayPdfService _additionalPayPdfService;
+        private readonly ICacheService _cacheService;
 
         public AttendanceRecordsService(
             IBaseRepository<AttendanceRecords> repository,
@@ -60,8 +58,10 @@ namespace PrenominaApi.Services
             GlobalPropertyService globalPropertyService,
             PDFService pdfService,
             AttendancePdfService attendancePdfService,
-            AdditionalPayPdfService additionalPayPdfService
-        ) : base(repository) {
+            AdditionalPayPdfService additionalPayPdfService,
+            ICacheService cacheService
+        ) : base(repository)
+        {
             _employeeService = employeeService;
             _payrollRepository = payrollRepository;
             _periodRepository = periodRepository;
@@ -80,108 +80,180 @@ namespace PrenominaApi.Services
             _attendancePdfService = attendancePdfService;
             _additionalPayPdfService = additionalPayPdfService;
             _sysConfigService = sysConfigService;
+            _cacheService = cacheService;
         }
 
         public PagedResult<EmployeeAttendancesOutput> ExecuteProcess(GetAttendanceEmployees filter)
         {
-            List<Key> keys;
+            // Construir query base para keys con filtros
+            var keysQuery = _keyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(item => item.Company == filter.Company && item.TypeNom == filter.TypeNomina);
 
-            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            // Aplicar filtro de tenant
+            if (filter.Tenant != "-999")
             {
-                keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == filter.Company && 
-                    item.TypeNom == filter.TypeNomina && 
-                    (filter.Tenant != "-999" ? item.Center.Trim() == filter.Tenant : true)
-                ).Include(k => k.Tabulator).ToList();
-            } else
-            {
-                keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == filter.Company &&
-                    item.TypeNom == filter.TypeNomina &&
-                    (filter.Tenant != "-999" ? item.Supervisor == Convert.ToDecimal(filter.Tenant) : true)
-                ).Include(k => k.Tabulator).ToList();
+                keysQuery = _globalPropertyService.TypeTenant == TypeTenant.Department
+                    ? keysQuery.Where(item => item.Center.Trim() == filter.Tenant)
+                    : keysQuery.Where(item => item.Supervisor == Convert.ToDecimal(filter.Tenant));
             }
 
-            var employeeCodes = keys.Select(k => k.Codigo).ToList();
+            // Proyectar solo lo necesario - evita cargar entidades completas
+            var keysData = keysQuery
+                .Include(k => k.Tabulator)
+                .Select(k => new { k.Codigo, Activity = k.Tabulator.Activity ?? "" })
+                .ToList();
+
+            // Usar HashSet para búsquedas O(1)
+            var employeeCodes = keysData.Select(k => k.Codigo).ToHashSet();
+            var activityLookup = keysData.ToDictionary(k => k.Codigo, k => k.Activity);
+
             var year = _globalPropertyService.YearOfOperation;
-            var periodDates = _periodRepository.GetByFilter((period) => period.TypePayroll == filter.TypeNomina && period.Company == filter.Company && period.NumPeriod == filter.NumPeriod && period.Year == year).FirstOrDefault();
+
+            // Obtener período con AsNoTracking
+            var periodDates = _periodRepository.GetByFilter(
+                period => period.TypePayroll == filter.TypeNomina &&
+                          period.Company == filter.Company &&
+                          period.NumPeriod == filter.NumPeriod &&
+                          period.Year == year
+            ).AsQueryable().AsNoTracking().FirstOrDefault();
 
             if (periodDates is null)
             {
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
             }
 
-            var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(ai => employeeCodes.Contains(ai.EmployeeCode) && ai.CompanyId == filter.Company && ai.Date >= periodDates.StartDate && ai.Date <= periodDates.ClosingDate).Include(ai => ai.ItemIncidentCode).ToList();
+            // Obtener incidentes en una sola query optimizada
+            var assistanceIncidents = _assistanceIncident.GetContextEntity()
+                .AsNoTracking()
+                .Where(ai => employeeCodes.Contains(ai.EmployeeCode) &&
+                             ai.CompanyId == filter.Company &&
+                             ai.Date >= periodDates.StartDate &&
+                             ai.Date <= periodDates.ClosingDate)
+                .Select(ai => new
+                {
+                    ai.Id,
+                    ai.EmployeeCode,
+                    ai.CompanyId,
+                    ai.Date,
+                    ai.IncidentCode,
+                    ai.Approved,
+                    ai.TimeOffRequest,
+                    ai.UpdatedAt,
+                    IsAdditional = ai.ItemIncidentCode != null && ai.ItemIncidentCode.IsAdditional,
+                    Label = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Label : ""
+                })
+                .ToList();
+
+            // Indexar incidentes por empleado y fecha para O(1) lookup
+            var incidentsLookup = assistanceIncidents
+                .GroupBy(ai => (ai.EmployeeCode, ai.Date))
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             var lowerSearch = filter.Search?.ToLower();
 
-            PagedResult<Employee> employees = _employeeService.GetWithPagination(
+            // Paginación de empleados
+            var employees = _employeeService.GetWithPagination(
                 filter.Paginator.Page,
                 filter.Paginator.PageSize,
-                item => employeeCodes.Contains(item.Codigo) && item.Company == filter.Company && item.Active == 'S' && (
-                    string.IsNullOrWhiteSpace(lowerSearch) || item.Codigo.ToString().Contains(lowerSearch) || (item.Name + " " + item.LastName + " " + item.MLastName).ToLower().Contains(lowerSearch)
-                )
+                item => employeeCodes.Contains(item.Codigo) &&
+                        item.Company == filter.Company &&
+                        item.Active == 'S' &&
+                        (string.IsNullOrWhiteSpace(lowerSearch) ||
+                         item.Codigo.ToString().Contains(lowerSearch) ||
+                         (item.Name + " " + item.LastName + " " + item.MLastName).ToLower().Contains(lowerSearch))
             );
-            List<EmployeeCheckIns> attendances = _employeeCheckIns.GetByFilter(
-                item => item.CheckIn != TimeOnly.MinValue && item.Date >= periodDates.StartDate && item.Date <= periodDates.ClosingDate && employees.Items.Any(e => e.Codigo == item.EmployeeCode && e.Company == item.CompanyId)
-            ).ToList();
 
-            foreach (var incident in assistanceIncidents)
-            {
-                attendances.Add(new EmployeeCheckIns()
+            // HashSet de empleados paginados para filtrar checkins
+            var paginatedEmployeeCodes = employees.Items.Select(e => e.Codigo).ToHashSet();
+
+            // Obtener checkins optimizado
+            var attendances = _employeeCheckIns.GetContextEntity()
+                .AsNoTracking()
+                .Where(item => item.CheckIn != TimeOnly.MinValue &&
+                               item.Date >= periodDates.StartDate &&
+                               item.Date <= periodDates.ClosingDate &&
+                               paginatedEmployeeCodes.Contains(item.EmployeeCode) &&
+                               item.CompanyId == filter.Company)
+                .Select(item => new
                 {
-                    CheckIn = TimeOnly.MinValue,
-                    EmployeeCode = incident.EmployeeCode,
-                    CompanyId = incident.CompanyId,
-                    Date = incident.Date,
-                });
-            }
+                    item.Id,
+                    item.EmployeeCode,
+                    item.CompanyId,
+                    item.Date,
+                    item.CheckIn,
+                    item.EoS,
+                    item.TypeNom
+                })
+                .ToList();
 
-            var result = employees.Items.Select(employee => new EmployeeAttendancesOutput
+            // Indexar checkins por empleado y fecha
+            var checkinsLookup = attendances
+                .GroupBy(a => (a.EmployeeCode, a.Date))
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CheckIn).ToList());
+
+            // Obtener fechas del período
+            var allDates = DateService.GetListDate(periodDates.StartDate, periodDates.ClosingDate);
+
+            // Procesar resultados
+            var result = employees.Items.Select(employee =>
             {
-                Codigo = employee.Codigo,
-                LastName = employee.LastName,
-                MLastName = employee.MLastName,
-                Name = employee.Name,
-                Company = employee.Company,
-                Salary = employee.Salary,
-                Activity = keys.FirstOrDefault(k => k.Codigo == employee.Codigo)?.Tabulator.Activity ?? "",
-                Attendances = attendances.Where(attendace => attendace.EmployeeCode == employee.Codigo && attendace.CompanyId == employee.Company)
-                .GroupBy(attendance => attendance.Date)
-                .Select(check =>
-                {
-                    var orderedChecks = check.Where(x => x.CheckIn != TimeOnly.MinValue).OrderBy(x => x.CheckIn).ToList();
-                    var employeeAssistanceIncidents = assistanceIncidents.Where(ai => ai.EmployeeCode == employee.Codigo && ai.Date == check.Key);
-                    var defaultIncidentCode = employeeAssistanceIncidents.Where(ai => ai.ItemIncidentCode?.IsAdditional == false && ai.Approved).FirstOrDefault();
-                    var checkEntry = orderedChecks.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
-                    var checkOut = orderedChecks.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
+                var employeeAttendances = new List<AttendanceOutput>();
 
-                    return new AttendanceOutput
+                foreach (var date in allDates)
+                {
+                    var key = (employee.Codigo, date);
+
+                    // Obtener checkins para esta fecha
+                    var dayCheckins = checkinsLookup.TryGetValue(key, out var checks) ? checks : null;
+
+                    // Obtener incidentes para esta fecha
+                    var dayIncidents = incidentsLookup.TryGetValue(key, out var incidents)
+                        ? incidents
+                        : new List<dynamic>();
+
+                    var defaultIncident = dayIncidents
+                        .Where(ai => !ai.IsAdditional && ai.Approved)
+                        .FirstOrDefault();
+
+                    var checkEntry = dayCheckins?.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
+                    var checkOut = dayCheckins?.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
+
+                    employeeAttendances.Add(new AttendanceOutput
                     {
-                        Date = check.Key,
-                        IncidentCode = defaultIncidentCode == null ? "N/A" : defaultIncidentCode.IncidentCode,
-                        IncidentCodeLabel = defaultIncidentCode?.ItemIncidentCode?.Label ?? "",
-                        TypeNom = check.First().TypeNom,
+                        Date = date,
+                        IncidentCode = defaultIncident?.IncidentCode ?? "N/A",
+                        IncidentCodeLabel = defaultIncident?.Label ?? "",
+                        TypeNom = dayCheckins?.FirstOrDefault()?.TypeNom ?? 0,
                         CheckEntryId = checkEntry?.Id,
                         CheckEntry = checkEntry?.CheckIn.ToString("HH:mm:ss"),
                         CheckOutId = checkOut?.Id,
                         CheckOut = checkOut?.CheckIn.ToString("HH:mm:ss"),
-                        AssistanceIncidents = employeeAssistanceIncidents.Select(ai =>
+                        AssistanceIncidents = dayIncidents.Select(ai => new AssistanceIncidentOutput
                         {
-                            return new AssistanceIncidentOutput()
-                            {
-                                Id = ai.Id,
-                                Date = ai.Date,
-                                IncidentCode = ai.IncidentCode,
-                                Approved = ai.Approved,
-                                IsAdditional = ai.ItemIncidentCode?.IsAdditional ?? false,
-                                Label = ai.ItemIncidentCode?.Label ?? "",
-                                TimeOffRequest = ai.TimeOffRequest,
-                                UpdatedAt = ai.UpdatedAt
-                            };
+                            Id = ai.Id,
+                            Date = ai.Date,
+                            IncidentCode = ai.IncidentCode,
+                            Approved = ai.Approved,
+                            IsAdditional = ai.IsAdditional,
+                            Label = ai.Label,
+                            TimeOffRequest = ai.TimeOffRequest,
+                            UpdatedAt = ai.UpdatedAt
                         }).ToList()
-                    };
-                }).ToList()
+                    });
+                }
+
+                return new EmployeeAttendancesOutput
+                {
+                    Codigo = employee.Codigo,
+                    LastName = employee.LastName,
+                    MLastName = employee.MLastName,
+                    Name = employee.Name,
+                    Company = employee.Company,
+                    Salary = employee.Salary,
+                    Activity = activityLookup.TryGetValue(employee.Codigo, out var activity) ? activity : "",
+                    Attendances = employeeAttendances
+                };
             }).ToList();
 
             return new PagedResult<EmployeeAttendancesOutput>
@@ -196,136 +268,165 @@ namespace PrenominaApi.Services
 
         public InitAttendanceRecords ExecuteProcess(int companyId)
         {
-            if (String.IsNullOrEmpty(_globalPropertyService.UserId))
+            if (string.IsNullOrEmpty(_globalPropertyService.UserId))
             {
                 throw new BadHttpRequestException("Unauthorized");
             }
 
             var year = _globalPropertyService.YearOfOperation;
-            var user = _userRepository.GetContextEntity().Include(u => u.Role).Where(u => u.Id == Guid.Parse(_globalPropertyService.UserId)).FirstOrDefault();
+
+            // Obtener usuario con rol en una sola query
+            var user = _userRepository.GetContextEntity()
+                .AsNoTracking()
+                .Include(u => u.Role)
+                .Where(u => u.Id == Guid.Parse(_globalPropertyService.UserId))
+                .Select(u => new { u.Id, u.RoleId, RoleCode = u.Role!.Code })
+                .FirstOrDefault();
 
             if (user == null)
             {
                 throw new BadHttpRequestException("Unauthorized");
             }
 
-            var periods = _periodRepository.GetByFilter((period) => period.Company == companyId && period.Year == year && period.IsActive).OrderBy(p => p.NumPeriod);
+            // Usar caché para payrolls
+            var payrolls = _cacheService.GetOrCreate(
+                CacheKeys.GetPayrollsKey(companyId),
+                () => _payrollRepository.GetByFilter(p => p.Company == companyId).ToList(),
+                TimeSpan.FromMinutes(30)
+            );
 
-            if (user!.Role!.Code == RoleCode.Sudo)
+            // Períodos con caché
+            var periodsQuery = _periodRepository.GetByFilter(
+                period => period.Company == companyId && period.Year == year
+            );
+
+            var periods = user.RoleCode == RoleCode.Sudo
+                ? periodsQuery.OrderBy(p => p.NumPeriod).ToList()
+                : periodsQuery.Where(p => p.IsActive).OrderBy(p => p.NumPeriod).ToList();
+
+            // Incident codes con caché y proyección
+            var incidentCodes = _cacheService.GetOrCreate(
+                CacheKeys.IncidentCodes,
+                () => _incidentCodeRepository.GetContextEntity()
+                    .AsNoTracking()
+                    .Include(ic => ic.IncidentCodeAllowedRoles)
+                    .ToList(),
+                TimeSpan.FromMinutes(60)
+            );
+
+            // Filtrar por rol si es necesario
+            var filteredIncidentCodes = user.RoleCode == RoleCode.Sudo
+                ? incidentCodes
+                : incidentCodes.Where(ic =>
+                    !ic.RestrictedWithRoles ||
+                    (ic.IncidentCodeAllowedRoles != null &&
+                     ic.IncidentCodeAllowedRoles.Any(ar => ar.RoleId == user.RoleId))
+                ).ToList();
+
+            // Period status con caché
+            var periodStatus = _cacheService.GetOrCreate(
+                CacheKeys.PeriodStatus,
+                () => _perioStatusRepository.GetAll().ToList(),
+                TimeSpan.FromMinutes(5)
+            );
+
+            return new InitAttendanceRecords()
             {
-                periods = _periodRepository.GetByFilter((period) => period.Company == companyId && period.Year == year).OrderBy(p => p.NumPeriod);
-            }
-
-            var payrolls = _payrollRepository.GetByFilter((payroll) => payroll.Company == companyId);
-            var incidentCodes = _incidentCodeRepository.GetContextEntity().Include(ic => ic.IncidentCodeAllowedRoles).Where(ic => 
-                (user!.Role!.Code == RoleCode.Sudo || !ic.RestrictedWithRoles) ? true :
-                ic.IncidentCodeAllowedRoles != null && ic.IncidentCodeAllowedRoles.Where((ar) => ar.RoleId == user!.RoleId).Any()
-            ).ToList();
-
-            var periodStatus = _perioStatusRepository.GetAll();
-
-            return new InitAttendanceRecords() {
                 Payrolls = payrolls,
                 Periods = periods,
-                IncidentCodes = incidentCodes,
+                IncidentCodes = filteredIncidentCodes,
                 PeriodStatus = periodStatus,
             };
         }
 
         public IEnumerable<AdditionalPay> ExecuteProcess(GetAdditionalPay getAdditionalPay)
         {
-            List<Key> keys;
-            var queryKey = _keyRepository.GetContextEntity().Where(k => k.Company == getAdditionalPay.Company && k.TypeNom == getAdditionalPay.TypeNomina);
+            // Construir query de keys
+            var queryKey = _keyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(k => k.Company == getAdditionalPay.Company && k.TypeNom == getAdditionalPay.TypeNomina);
 
             if (getAdditionalPay.Tenant != "-999")
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
-                {
-                    queryKey = queryKey.Where(k => k.Center.Trim() == getAdditionalPay.Tenant);
-                }
-                else
-                {
-                    var supervisor = Convert.ToDecimal(getAdditionalPay.Tenant);
-                    queryKey = queryKey.Where(k => k.Supervisor == supervisor);
-                }
+                queryKey = _globalPropertyService.TypeTenant == TypeTenant.Department
+                    ? queryKey.Where(k => k.Center.Trim() == getAdditionalPay.Tenant)
+                    : queryKey.Where(k => k.Supervisor == Convert.ToDecimal(getAdditionalPay.Tenant));
             }
 
-            keys = queryKey.Include(k => k.Tabulator).ToList();
+            var keysData = queryKey
+                .Include(k => k.Tabulator)
+                .Select(k => new { k.Codigo, Activity = k.Tabulator.Activity ?? "" })
+                .ToList();
 
-            var employeeCodes = keys.Select(k => k.Codigo).ToList();
+            var employeeCodes = keysData.Select(k => k.Codigo).ToHashSet();
+            var activityLookup = keysData.ToDictionary(k => k.Codigo, k => k.Activity);
+
             var year = _globalPropertyService.YearOfOperation;
             var periodDates = _periodRepository.GetByFilter(
-                (period) => period.TypePayroll == getAdditionalPay.TypeNomina &&
-                period.Company == getAdditionalPay.Company &&
-                period.NumPeriod == getAdditionalPay.NumPeriod &&
-                period.Year == year
-            ).SingleOrDefault();
+                period => period.TypePayroll == getAdditionalPay.TypeNomina &&
+                          period.Company == getAdditionalPay.Company &&
+                          period.NumPeriod == getAdditionalPay.NumPeriod &&
+                          period.Year == year
+            ).AsQueryable().AsNoTracking().SingleOrDefault();
 
             if (periodDates is null)
             {
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
             }
 
-            var incidentCodes = _incidentCodeRepository.GetContextEntity().Where(ic => ic.IsAdditional && ic.WithOperation).Select(ic => ic.Code).ToList();
-            var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(
-                ai => employeeCodes.Contains(ai.EmployeeCode) &&
-                ai.CompanyId == getAdditionalPay.Company &&
-                ai.Date >= periodDates.StartDate &&
-                ai.Date <= periodDates.ClosingDate &&
-                incidentCodes.Contains(ai.IncidentCode) &&
-                ai.MetaIncidentCodeJson != null
-            ).Include(ai => ai.ItemIncidentCode).ThenInclude(ic => ic!.IncidentCodeMetadata).ToList();
+            // Obtener códigos de incidencia adicionales con operación
+            var incidentCodes = _incidentCodeRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(ic => ic.IsAdditional && ic.WithOperation)
+                .Select(ic => ic.Code)
+                .ToHashSet();
 
-            var employees = _employeeRepository.GetContextEntity().Where(
-                item => employeeCodes.Contains(item.Codigo) && item.Company == getAdditionalPay.Company && item.Active == 'S'
-            );
+            // Query optimizada de incidentes
+            var assistanceIncidents = _assistanceIncident.GetContextEntity()
+                .AsNoTracking()
+                .Where(ai => employeeCodes.Contains(ai.EmployeeCode) &&
+                             ai.CompanyId == getAdditionalPay.Company &&
+                             ai.Date >= periodDates.StartDate &&
+                             ai.Date <= periodDates.ClosingDate &&
+                             incidentCodes.Contains(ai.IncidentCode) &&
+                             ai.MetaIncidentCodeJson != null)
+                .Include(ai => ai.ItemIncidentCode)
+                    .ThenInclude(ic => ic!.IncidentCodeMetadata)
+                .ToList();
 
-            var result = assistanceIncidents.Select(incident =>
+            // Obtener empleados en una sola query
+            var employeesDict = _employeeRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(item => employeeCodes.Contains(item.Codigo) &&
+                               item.Company == getAdditionalPay.Company &&
+                               item.Active == 'S')
+                .ToDictionary(e => (e.Codigo, e.Company));
+
+            return assistanceIncidents.Select(incident =>
             {
                 var columnForOperation = incident.ItemIncidentCode?.IncidentCodeMetadata!.ColumnForOperation;
-                var employee = employees.First(e => e.Codigo == incident.EmployeeCode && e.Company == incident.CompanyId);
-                var key = keys.First(k => k.Codigo == incident.EmployeeCode);
-                var baseValue = columnForOperation == ColumnForOperation.Salary ? employee.Salary : incident.MetaIncidentCode!.BaseValue;
-                var operationValue = incident.MetaIncidentCode!.OperationValue;
-                decimal total = 0;
-                string operatorSymbol = "";
-                string operatorText = "";
 
-                switch (incident.ItemIncidentCode!.IncidentCodeMetadata!.MathOperation)
+                if (!employeesDict.TryGetValue((incident.EmployeeCode, incident.CompanyId), out var employee))
                 {
-                    case MathOperation.Addition:
-                        total = baseValue + operationValue;
-                        operatorSymbol = "add";
-                        operatorText = "Suma";
-                        break;
-                    case MathOperation.Subtraction:
-                        total = baseValue - operationValue;
-                        operatorSymbol = "remove";
-                        operatorText = "Resta";
-                        break;
-                    case MathOperation.Multiplication:
-                        total = baseValue * operationValue;
-                        operatorSymbol = "close";
-                        operatorText = "Multiplicación";
-                        break;
-                    case MathOperation.Division:
-                        if (operationValue != 0)
-                        {
-                            total = baseValue / operationValue;
-                            operatorSymbol = "open_size_2";
-                            operatorText = "División";
-                        }
-                        break;
-                    default:
-                        total = baseValue;
-                        break;
+                    return null;
                 }
+
+                var baseValue = columnForOperation == ColumnForOperation.Salary
+                    ? employee.Salary
+                    : incident.MetaIncidentCode!.BaseValue;
+                var operationValue = incident.MetaIncidentCode!.OperationValue;
+
+                var (total, operatorSymbol, operatorText) = CalculateOperation(
+                    incident.ItemIncidentCode!.IncidentCodeMetadata!.MathOperation,
+                    baseValue,
+                    operationValue
+                );
 
                 return new AdditionalPay
                 {
                     EmployeeName = $"{employee.Name} {employee.LastName} {employee.MLastName}",
                     EmployeeCode = employee.Codigo,
-                    EmployeeActivity = key.Tabulator.Activity ?? "",
+                    EmployeeActivity = activityLookup.TryGetValue(employee.Codigo, out var activity) ? activity : "",
                     Company = "",
                     Date = incident.Date,
                     IncidentCode = incident.IncidentCode,
@@ -336,10 +437,20 @@ namespace PrenominaApi.Services
                     OperationValue = operationValue,
                     Total = total
                 };
-            });
+            }).Where(x => x != null).Cast<AdditionalPay>();
+        }
 
-            return result;
-
+        private static (decimal total, string symbol, string text) CalculateOperation(
+            MathOperation operation, decimal baseValue, decimal operationValue)
+        {
+            return operation switch
+            {
+                MathOperation.Addition => (baseValue + operationValue, "add", "Suma"),
+                MathOperation.Subtraction => (baseValue - operationValue, "remove", "Resta"),
+                MathOperation.Multiplication => (baseValue * operationValue, "close", "Multiplicación"),
+                MathOperation.Division when operationValue != 0 => (baseValue / operationValue, "open_size_2", "División"),
+                _ => (baseValue, "", "")
+            };
         }
 
         public byte[] ExecuteProcess(DownloadAdditionalPay downloadAdditionalPay)
@@ -358,151 +469,191 @@ namespace PrenominaApi.Services
             {
                 return _additionalPayPdfService.Generate(items, company?.Name ?? "", $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}");
             }
-            else
+
+            return GenerateAdditionalPayExcel(items);
+        }
+
+        private static byte[] GenerateAdditionalPayExcel(IEnumerable<AdditionalPay> items)
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Pagos Adicionales");
+            var index = 1;
+
+            // Headers
+            worksheet.Cell($"A{index}").Value = "Empleado";
+            worksheet.Cell($"B{index}").Value = "Fecha";
+            worksheet.Cell($"C{index}").Value = "Código de Incidencia";
+            worksheet.Cell($"D{index}").Value = "Columna";
+            worksheet.Cell($"E{index}").Value = "Valor Base";
+            worksheet.Cell($"F{index}").Value = "Operador";
+            worksheet.Cell($"G{index}").Value = "Valor de Operación";
+            worksheet.Cell($"H{index}").Value = "Total";
+
+            index++;
+
+            // Configurar columnas
+            worksheet.Column("B").Width = 10;
+            worksheet.Column("B").Style.NumberFormat.Format = "dd/mm/yyyy";
+            worksheet.Column("E").Width = 10;
+            worksheet.Column("E").Style.NumberFormat.Format = "0.00";
+            worksheet.Column("G").Width = 10;
+            worksheet.Column("G").Style.NumberFormat.Format = "0.00";
+            worksheet.Column("H").Width = 10;
+            worksheet.Column("H").Style.NumberFormat.Format = "0.00";
+
+            foreach (var employee in items)
             {
-                using (var workbook = new XLWorkbook())
-                {
-                    var worksheet = workbook.Worksheets.Add("Pagos Adicionales");
-                    var index = 1;
-
-                    worksheet.Cell($"A{index}").Value = "Empleado";
-                    worksheet.Cell($"B{index}").Value = "Fecha";
-                    worksheet.Cell($"C{index}").Value = "Código de Incidencia";
-                    worksheet.Cell($"D{index}").Value = "Columna";
-                    worksheet.Cell($"E{index}").Value = "Valor Base";
-                    worksheet.Cell($"F{index}").Value = "Operador";
-                    worksheet.Cell($"G{index}").Value = "Valor de Operación";
-                    worksheet.Cell($"H{index}").Value = "Total";
-
-                    index++;
-
-                    worksheet.Column("B").Width = 10;
-                    worksheet.Column("B").Style.NumberFormat.Format = "dd/mm/yyyy";
-                    worksheet.Column("E").Width = 10;
-                    worksheet.Column("E").Style.NumberFormat.Format = "0.00";
-                    worksheet.Column("G").Width = 10;
-                    worksheet.Column("G").Style.NumberFormat.Format = "0.00";
-                    worksheet.Column("H").Width = 10;
-                    worksheet.Column("H").Style.NumberFormat.Format = "0.00";
-
-                    foreach (var employee in items)
-                    {
-                        worksheet.Cell($"A{index}").Value = employee.EmployeeName;
-                        worksheet.Cell($"B{index}").Value = employee.Date.ToString("dd/MM/yyyy");
-                        worksheet.Cell($"C{index}").Value = employee.IncidentCode;
-                        worksheet.Cell($"D{index}").Value = employee.Column;
-                        worksheet.Cell($"E{index}").Value = employee.BaseValue.ToString("C");
-                        worksheet.Cell($"F{index}").Value = employee.OperatorText;
-                        worksheet.Cell($"G{index}").Value = employee.OperationValue.ToString("C");
-                        worksheet.Cell($"H{index}").Value = employee.Total.ToString("C");
-
-                        index++;
-                    }
-
-                    using (var stream = new MemoryStream())
-                    {
-                        workbook.SaveAs(stream);
-
-                        return stream.ToArray();
-                    }
-                }
+                worksheet.Cell($"A{index}").Value = employee.EmployeeName;
+                worksheet.Cell($"B{index}").Value = employee.Date.ToString("dd/MM/yyyy");
+                worksheet.Cell($"C{index}").Value = employee.IncidentCode;
+                worksheet.Cell($"D{index}").Value = employee.Column;
+                worksheet.Cell($"E{index}").Value = employee.BaseValue.ToString("C");
+                worksheet.Cell($"F{index}").Value = employee.OperatorText;
+                worksheet.Cell($"G{index}").Value = employee.OperationValue.ToString("C");
+                worksheet.Cell($"H{index}").Value = employee.Total.ToString("C");
+                index++;
             }
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            return stream.ToArray();
         }
 
         public byte[] ExecuteProcess(DownloadAttendanceEmployee downloadAttendance)
         {
-            IQueryable<Key> keyQuery = _keyRepository.GetContextEntity().Include(k => k.Tabulator).Where(k => k.Company == downloadAttendance.Company && k.TypeNom == downloadAttendance.TypeNomina);
+            var keyQuery = _keyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Include(k => k.Tabulator)
+                .Where(k => k.Company == downloadAttendance.Company && k.TypeNom == downloadAttendance.TypeNomina);
+
             var company = _companiesRepository.GetById(downloadAttendance.Company);
 
             if (downloadAttendance.Tenant != "-999")
             {
-                keyQuery = _globalPropertyService.TypeTenant == TypeTenant.Department ? keyQuery.Where(k => k.Center.Trim() == downloadAttendance.Tenant) : keyQuery.Where(k => k.Supervisor == Convert.ToDecimal(downloadAttendance.Tenant));
+                keyQuery = _globalPropertyService.TypeTenant == TypeTenant.Department
+                    ? keyQuery.Where(k => k.Center.Trim() == downloadAttendance.Tenant)
+                    : keyQuery.Where(k => k.Supervisor == Convert.ToDecimal(downloadAttendance.Tenant));
             }
 
-            var keys = keyQuery.ToList();
-            var employeeCodes = keys.Select(k => k.Codigo).ToHashSet();
+            var keysData = keyQuery
+                .Select(k => new { k.Codigo, Activity = k.Tabulator.Activity ?? "" })
+                .ToList();
+
+            var employeeCodes = keysData.Select(k => k.Codigo).ToHashSet();
+            var activityLookup = keysData.ToDictionary(k => k.Codigo, k => k.Activity);
+
             var year = _globalPropertyService.YearOfOperation;
-            var period = _periodRepository.GetByFilter(p => p.TypePayroll == downloadAttendance.TypeNomina &&
-                p.Company == downloadAttendance.Company &&
-                p.NumPeriod == downloadAttendance.NumPeriod &&
-                p.Year == year
-            ).FirstOrDefault();
-            var payroll = _payrollRepository.GetByFilter(p => p.Company == company!.Id && p.TypeNom == downloadAttendance.TypeNomina).First();
+            var period = _periodRepository.GetByFilter(
+                p => p.TypePayroll == downloadAttendance.TypeNomina &&
+                     p.Company == downloadAttendance.Company &&
+                     p.NumPeriod == downloadAttendance.NumPeriod &&
+                     p.Year == year
+            ).AsQueryable().AsNoTracking().FirstOrDefault();
+
+            var payroll = _payrollRepository.GetByFilter(
+                p => p.Company == company!.Id && p.TypeNom == downloadAttendance.TypeNomina
+            ).First();
 
             if (period == null)
             {
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
             }
 
+            // Obtener nombre de tenant
             var tenantName = "Todos";
             if (downloadAttendance.Tenant != "-999")
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
-                {
-                    tenantName = _centerRepository.GetByFilter(c => c.Id.Trim() == downloadAttendance.Tenant && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
-                }
-                else
-                {
-                    tenantName = _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!)).FirstOrDefault()?.Name ?? "";
-                }
+                tenantName = _globalPropertyService.TypeTenant == TypeTenant.Department
+                    ? _centerRepository.GetByFilter(c => c.Id.Trim() == downloadAttendance.Tenant && c.Company == company!.Id)
+                        .FirstOrDefault()?.DepartmentName ?? ""
+                    : _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!))
+                        .FirstOrDefault()?.Name ?? "";
             }
 
-            var assistanceIncidents = _assistanceIncident.GetContextEntity().Include(ai => ai.ItemIncidentCode).Where(ai =>
-                employeeCodes.Contains(ai.EmployeeCode) &&
-                ai.CompanyId == downloadAttendance.Company &&
-                ai.Date >= period.StartDate &&
-                ai.Date <= period.ClosingDate
+            // Obtener incidentes optimizado
+            var assistanceIncidents = _assistanceIncident.GetContextEntity()
+                .AsNoTracking()
+                .Where(ai => employeeCodes.Contains(ai.EmployeeCode) &&
+                             ai.CompanyId == downloadAttendance.Company &&
+                             ai.Date >= period.StartDate &&
+                             ai.Date <= period.ClosingDate)
+                .Select(ai => new
+                {
+                    ai.Id,
+                    ai.EmployeeCode,
+                    ai.CompanyId,
+                    ai.Date,
+                    ai.IncidentCode,
+                    ai.Approved,
+                    ai.TimeOffRequest,
+                    ai.UpdatedAt,
+                    IsAdditional = ai.ItemIncidentCode != null && ai.ItemIncidentCode.IsAdditional,
+                    Label = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Label : ""
+                })
+                .ToList();
+
+            var incidentsLookup = assistanceIncidents
+                .GroupBy(ai => (ai.EmployeeCode, ai.Date))
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Obtener empleados
+            var employees = _employeeService.GetByFilter(
+                e => employeeCodes.Contains(e.Codigo) && e.Company == downloadAttendance.Company && e.Active == 'S'
             ).ToList();
 
-            var employees = _employeeService.GetByFilter(e => employeeCodes.Contains(e.Codigo) && e.Company == downloadAttendance.Company && e.Active == 'S').ToList();
-            var employeeLookup = employees.ToDictionary(e => (e.Codigo, e.Company));
             var codesToFilter = employees.Select(e => e.Codigo).ToHashSet();
-            var attendaces = _employeeCheckIns.GetByFilter(a =>
-                a.CheckIn != TimeOnly.MinValue &&
-                a.Date >= period.StartDate &&
-                a.Date <= period.ClosingDate &&
-                codesToFilter.Contains(a.EmployeeCode) &&
-                a.CompanyId == downloadAttendance.Company
-            ).ToList();
 
-            attendaces.AddRange(assistanceIncidents.Select(ai => new EmployeeCheckIns()
-            {
-                CheckIn = TimeOnly.MinValue,
-                EmployeeCode = ai.EmployeeCode,
-                CompanyId = ai.CompanyId,
-                Date = ai.Date
-            }));
+            // Obtener checkins
+            var attendances = _employeeCheckIns.GetContextEntity()
+                .AsNoTracking()
+                .Where(a => a.CheckIn != TimeOnly.MinValue &&
+                            a.Date >= period.StartDate &&
+                            a.Date <= period.ClosingDate &&
+                            codesToFilter.Contains(a.EmployeeCode) &&
+                            a.CompanyId == downloadAttendance.Company)
+                .Select(a => new
+                {
+                    a.EmployeeCode,
+                    a.CompanyId,
+                    a.Date,
+                    a.CheckIn,
+                    a.EoS,
+                    a.TypeNom
+                })
+                .ToList();
+
+            var checkinsLookup = attendances
+                .GroupBy(a => (a.EmployeeCode, a.Date))
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CheckIn).ToList());
+
+            var listDates = DateService.GetListDate(period.StartDate, period.ClosingDate);
 
             var employeeAttendancesResult = employees.Select(emp =>
             {
-                var activity = keys.FirstOrDefault(k => k.Codigo == emp.Codigo)?.Tabulator.Activity ?? "";
-                var empAttendaces = attendaces.Where(a => a.EmployeeCode == emp.Codigo && a.CompanyId == emp.Company).GroupBy(a => a.Date).Select(group =>
+                var empAttendances = listDates.Select(date =>
                 {
-                    //var checks = group.Where(g => TimeSpan.TryParse(g.CheckInOut, out _)).OrderBy(g => TimeSpan.Parse(g.CheckInOut ?? "00:00:00")).ToList();
-                    var checks = group.Where(g => g.CheckIn != TimeOnly.MinValue).OrderBy(g => g.CheckIn).ToList();
+                    var key = (emp.Codigo, date);
+                    var checks = checkinsLookup.TryGetValue(key, out var c) ? c : null;
+                    var incidents = incidentsLookup.TryGetValue(key, out var i) ? i : new List<dynamic>();
 
-                    var empIncidents = assistanceIncidents.Where(ai => ai.EmployeeCode == emp.Codigo && ai.Date == group.Key);
-
-                    var defaultIncident = empIncidents.FirstOrDefault(ai => ai.ItemIncidentCode?.IsAdditional == false && ai.Approved);
+                    var defaultIncident = incidents.FirstOrDefault(ai => !ai.IsAdditional && ai.Approved);
 
                     return new AttendanceOutput
                     {
-                        Date = group.Key,
+                        Date = date,
                         IncidentCode = defaultIncident?.IncidentCode ?? "--:--",
-                        IncidentCodeLabel = defaultIncident?.ItemIncidentCode?.Label ?? "",
-                        TypeNom = group.First().TypeNom,
-                        //CheckEntry = checks.FirstOrDefault(c => c.TypeInOut?.Contains("E") == true || c.TypeInOut?.Contains("1") == true)?.CheckInOut,
-                        //CheckOut = checks.LastOrDefault(c => c.TypeInOut?.Contains("S") == true || c.TypeInOut?.Contains("2") == true)?.CheckInOut,
-                        CheckEntry = checks.FirstOrDefault(c => c.EoS == EntryOrExit.Entry)?.CheckIn.ToString("HH:mm"),
-                        CheckOut = checks.LastOrDefault(c => c.EoS == EntryOrExit.Exit)?.CheckIn.ToString("HH:mm"),
-                        AssistanceIncidents = empIncidents.Select(ai => new AssistanceIncidentOutput
+                        IncidentCodeLabel = defaultIncident?.Label ?? "",
+                        TypeNom = checks?.FirstOrDefault()?.TypeNom ?? 0,
+                        CheckEntry = checks?.FirstOrDefault(c => c.EoS == EntryOrExit.Entry)?.CheckIn.ToString("HH:mm"),
+                        CheckOut = checks?.LastOrDefault(c => c.EoS == EntryOrExit.Exit)?.CheckIn.ToString("HH:mm"),
+                        AssistanceIncidents = incidents.Select(ai => new AssistanceIncidentOutput
                         {
                             Id = ai.Id,
                             Date = ai.Date,
                             IncidentCode = ai.IncidentCode,
                             Approved = ai.Approved,
-                            IsAdditional = ai.ItemIncidentCode?.IsAdditional ?? false,
-                            Label = ai.ItemIncidentCode?.Label ?? "",
+                            IsAdditional = ai.IsAdditional,
+                            Label = ai.Label,
                             TimeOffRequest = ai.TimeOffRequest,
                             UpdatedAt = ai.UpdatedAt
                         }).ToList()
@@ -517,8 +668,8 @@ namespace PrenominaApi.Services
                     Name = emp.Name,
                     Company = emp.Company,
                     Salary = emp.Salary,
-                    Activity = activity,
-                    Attendances = empAttendaces,
+                    Activity = activityLookup.TryGetValue(emp.Codigo, out var activity) ? activity : "",
+                    Attendances = empAttendances,
                 };
             }).ToList();
 
@@ -526,80 +677,88 @@ namespace PrenominaApi.Services
             {
                 var findObject = _sysConfigService.ExecuteProcess<GetConfigReport, SysConfigReports>(new GetConfigReport { });
 
-                List<DateOnly> listDates = DateService.GetListDate(period.StartDate, period.ClosingDate);
-
                 if (findObject.ConfigAttendanceReport.TypeAttendanceReportPdf == TypeAttendanceReportPdf.Standard)
                 {
-                    return _pdfService.GenerateAttendance(employeeAttendancesResult, company?.Name ?? "", tenantName, $"{period.StartDate} - {period.ClosingDate}", listDates, $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}", $"{payroll.TypeNom} - {payroll.Label}");
+                    return _pdfService.GenerateAttendance(employeeAttendancesResult, company?.Name ?? "", tenantName,
+                        $"{period.StartDate} - {period.ClosingDate}", listDates,
+                        $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
+                        $"{payroll.TypeNom} - {payroll.Label}");
                 }
-                else
-                {
-                    return _attendancePdfService.Generate(employeeAttendancesResult, company?.Name ?? "", tenantName, $"{period.StartDate} - {period.ClosingDate}", listDates, $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}", $"{payroll.TypeNom} - {payroll.Label}");
-                }
-            } else
+
+                return _attendancePdfService.Generate(employeeAttendancesResult, company?.Name ?? "", tenantName,
+                    $"{period.StartDate} - {period.ClosingDate}", listDates,
+                    $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
+                    $"{payroll.TypeNom} - {payroll.Label}");
+            }
+
+            return GenerateAttendanceExcel(employeeAttendancesResult, period, listDates);
+        }
+
+        private static byte[] GenerateAttendanceExcel(
+            List<EmployeeAttendancesOutput> employees,
+            Models.Prenomina.Period period,
+            List<DateOnly> listDates)
+        {
+            var listAdminsDates = DateService.GetListDate(period.StartAdminDate, period.ClosingAdminDate);
+            var incidentsApply = SysConfig.IncidentApplyToAttendance;
+
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("T. Asistencia");
+            var index = 1;
+
+            // Headers
+            worksheet.Cell($"A{index}").Value = "Codigo";
+            worksheet.Cell($"B{index}").Value = "conc";
+            worksheet.Cell($"C{index}").Value = "importe";
+            worksheet.Cell($"D{index}").Value = "fecha";
+            worksheet.Cell($"E{index}").Value = "tipo";
+            worksheet.Cell($"F{index}").Value = "dias";
+
+            index++;
+
+            // Configurar columnas
+            worksheet.Column("A").Width = 8;
+            worksheet.Column("A").Style.NumberFormat.Format = "0";
+            worksheet.Column("B").Width = 4;
+            worksheet.Column("B").Style.NumberFormat.Format = "0";
+            worksheet.Column("C").Width = 10;
+            worksheet.Column("C").Style.NumberFormat.Format = "0.00";
+            worksheet.Column("D").Width = 10;
+            worksheet.Column("D").Style.NumberFormat.Format = "dd/mm/yyyy";
+            worksheet.Column("E").Width = 8;
+            worksheet.Column("E").Style.NumberFormat.Format = "0";
+            worksheet.Column("F").Width = 6;
+            worksheet.Column("F").Style.NumberFormat.Format = "0.00";
+
+            foreach (var employee in employees)
             {
-                List<DateOnly> listDates = DateService.GetListDate(period.StartDate, period.ClosingDate);
-                List<DateOnly> listAdminsDates = DateService.GetListDate(period.StartAdminDate, period.ClosingAdminDate);
+                var onlyIncidentApply = employee.Attendances?
+                    .Where(a => incidentsApply.Contains(a.IncidentCode))
+                    .ToList() ?? new List<AttendanceOutput>();
 
-                var incidentsApply = SysConfig.IncidentApplyToAttendance;
-                using (var workbook = new XLWorkbook())
+                foreach (var attendance in onlyIncidentApply)
                 {
-                    var worksheet = workbook.Worksheets.Add("T. Asistencia");
-                    var index = 1;
+                    var indexDate = listDates.IndexOf(attendance.Date);
 
-                    worksheet.Cell($"A{index}").Value = "Codigo";
-                    worksheet.Cell($"B{index}").Value = "conc";
-                    worksheet.Cell($"C{index}").Value = "importe";
-                    worksheet.Cell($"D{index}").Value = "fecha";
-                    worksheet.Cell($"E{index}").Value = "tipo";
-                    worksheet.Cell($"F{index}").Value = "dias";
-
-                    index++;
-
-                    worksheet.Column("A").Width = 8;
-                    worksheet.Column("A").Style.NumberFormat.Format = "0";
-                    worksheet.Column("B").Width = 4;
-                    worksheet.Column("B").Style.NumberFormat.Format = "0";
-                    worksheet.Column("C").Width = 10;
-                    worksheet.Column("C").Style.NumberFormat.Format = "0.00";
-                    worksheet.Column("D").Width = 10;
-                    worksheet.Column("D").Style.NumberFormat.Format = "dd/mm/yyyy";
-                    worksheet.Column("E").Width = 8;
-                    worksheet.Column("E").Style.NumberFormat.Format = "0";
-                    worksheet.Column("F").Width = 6;
-                    worksheet.Column("F").Style.NumberFormat.Format = "0.00";
-
-                    foreach (var employee in employeeAttendancesResult)
+                    if (indexDate >= 0 && indexDate < listAdminsDates.Count)
                     {
-                        List<AttendanceOutput> onlyIncidentApply = employee.Attendances!.Where(a => incidentsApply.Contains(a.IncidentCode)).ToList();
+                        var findAdminDate = listAdminsDates[indexDate];
 
-                        foreach (var attendance in onlyIncidentApply)
-                        {
-                            var indexDate = listDates.IndexOf(attendance.Date);
-                            var findAdminDate = listAdminsDates[indexDate];
+                        worksheet.Cell($"A{index}").Value = employee.Codigo;
+                        worksheet.Cell($"B{index}").Value = 108;
+                        worksheet.Cell($"C{index}").Value = employee.Salary;
+                        worksheet.Cell($"D{index}").Value = findAdminDate.ToString("dd/MM/yyyy");
+                        worksheet.Cell($"E{index}").Value = attendance.IncidentCode;
+                        worksheet.Cell($"F{index}").Value = 1;
 
-                            if (indexDate != -1)
-                            {
-                                worksheet.Cell($"A{index}").Value = employee.Codigo;
-                                worksheet.Cell($"B{index}").Value = 108;
-                                worksheet.Cell($"C{index}").Value = employee.Salary;
-                                worksheet.Cell($"D{index}").Value = findAdminDate.ToString("dd/MM/yyyy");
-                                worksheet.Cell($"E{index}").Value = attendance.IncidentCode;
-                                worksheet.Cell($"F{index}").Value = 1;
-
-                                index++;
-                            }
-                        }
-                    }
-
-                    using (var stream = new MemoryStream())
-                    {
-                        workbook.SaveAs(stream);
-
-                        return stream.ToArray();
+                        index++;
                     }
                 }
             }
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            return stream.ToArray();
         }
     }
 }

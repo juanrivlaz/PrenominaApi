@@ -85,6 +85,9 @@ namespace PrenominaApi.Configuration
             services.AddScoped(typeof(IBaseRepositoryPrenomina<>), typeof(RepositoryPrenomina<>));
             services.AddScoped(typeof(IBaseService<>), typeof(Service<>));
             services.AddScoped(typeof(IBaseServicePrenomina<>), typeof(ServicePrenomina<>));
+
+            // Servicios adicionales que no siguen el patrón genérico
+            services.AddScoped<OvertimeAccumulationService>();
         }
     }
 }

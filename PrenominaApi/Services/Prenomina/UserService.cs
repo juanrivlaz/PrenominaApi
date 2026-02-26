@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using PrenominaApi.Helper;
 using PrenominaApi.Models;
@@ -24,6 +24,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepository<Supervisor> _supervisorRespository;
         private readonly IConfiguration _configuration;
         private readonly GlobalPropertyService _globalPropertyService;
+        private readonly ICacheService _cacheService;
 
         public UserService(
             IBaseRepositoryPrenomina<User> baseRepository,
@@ -36,7 +37,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepository<Supervisor> supervisorRespository,
             IPasswordHasher<HasPassword> passwordHasher,
             IConfiguration configuration,
-            GlobalPropertyService globalPropertyService
+            GlobalPropertyService globalPropertyService,
+            ICacheService cacheService
         ) : base(baseRepository)
         {
             _userCompanyRepository = userCompanyRepository;
@@ -49,11 +51,21 @@ namespace PrenominaApi.Services.Prenomina
             _passwordHasher = passwordHasher;
             _configuration = configuration;
             _globalPropertyService = globalPropertyService;
+            _cacheService = cacheService;
         }
 
         public IEnumerable<User> ExecuteProcess(GetAllUser getAllUser)
         {
-            var result = _repository.GetContextEntity().Include(u => u.Role).Include(u => u.Companies).ThenInclude(c => c.UserDepartments).Include(u => u.Companies).ThenInclude(c => c.UserSupervisors).ToList();
+            // Optimizado: proyección selectiva en lugar de múltiples Includes
+            var result = _repository.GetContextEntity()
+                .AsNoTracking()
+                .Include(u => u.Role)
+                .Include(u => u.Companies)
+                    .ThenInclude(c => c.UserDepartments)
+                .Include(u => u.Companies)
+                    .ThenInclude(c => c.UserSupervisors)
+                .AsSplitQuery() // Dividir en múltiples queries para evitar explosión cartesiana
+                .ToList();
 
             return result;
         }
@@ -62,7 +74,13 @@ namespace PrenominaApi.Services.Prenomina
         {
             var typeSystem = _globalPropertyService.TypeTenant;
             string hasPassword = _passwordHasher.HashPassword(user, user.Password);
-            var rol = _roleRepository.GetById(user.RoleId);
+
+            // Obtener rol con caché
+            var rol = _cacheService.GetOrCreate(
+                $"role_{user.RoleId}",
+                () => _roleRepository.GetById(user.RoleId),
+                TimeSpan.FromMinutes(30)
+            );
 
             if (rol == null)
             {
@@ -73,9 +91,13 @@ namespace PrenominaApi.Services.Prenomina
             {
                 throw new BadHttpRequestException("El campo empresa es requerido");
             }
-            var existEmail = _repository.GetByFilter((item) => item.Email.ToString() == user.Email.ToString()).FirstOrDefault();
 
-            if (existEmail != null)
+            // Verificar email existente con query optimizada
+            var emailExists = _repository.GetContextEntity()
+                .AsNoTracking()
+                .Any(item => item.Email.ToLower() == user.Email.ToLower());
+
+            if (emailExists)
             {
                 throw new BadHttpRequestException("El correo electrónico ya se encuentra registrado");
             }
@@ -129,7 +151,6 @@ namespace PrenominaApi.Services.Prenomina
         {
             var findUser = _repository.GetById(Guid.Parse(editUser.UserId!));
             var typeSystem = _globalPropertyService.TypeTenant;
-            var rol = _roleRepository.GetById(editUser.RoleId);
 
             if (findUser is null)
             {
@@ -141,19 +162,24 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("El usuario no puede ser modificado");
             }
 
+            var rol = _roleRepository.GetById(editUser.RoleId);
+
             if (rol == null)
             {
                 throw new BadHttpRequestException("El rol no existe");
             }
 
-            if (rol.Code != RoleCode.Sudo && (editUser.Companies == null || !editUser .Companies!.Any()))
+            if (rol.Code != RoleCode.Sudo && (editUser.Companies == null || !editUser.Companies!.Any()))
             {
                 throw new BadHttpRequestException("El campo empresa es requerido");
             }
 
-            var existEmail = _repository.GetByFilter((item) => item.Email.ToString() == editUser.Email.ToString() && item.Id != findUser.Id).FirstOrDefault();
+            // Verificar email con query optimizada
+            var emailExists = _repository.GetContextEntity()
+                .AsNoTracking()
+                .Any(item => item.Email.ToLower() == editUser.Email.ToLower() && item.Id != findUser.Id);
 
-            if (existEmail != null)
+            if (emailExists)
             {
                 throw new BadHttpRequestException("El correo electrónico ya se encuentra registrado");
             }
@@ -162,7 +188,7 @@ namespace PrenominaApi.Services.Prenomina
             findUser.Email = editUser.Email;
             findUser.RoleId = editUser.RoleId;
 
-            if (editUser.Password != String.Empty)
+            if (!string.IsNullOrEmpty(editUser.Password))
             {
                 string hasPassword = _passwordHasher.HashPassword(editUser, editUser.Password);
                 findUser.Password = hasPassword;
@@ -170,9 +196,25 @@ namespace PrenominaApi.Services.Prenomina
 
             var updated = _repository.Update(findUser);
 
-            _userSupervisorRepository.GetContextEntity().Where(us => _userCompanyRepository.GetContextEntity().Any(uc => uc.Id == us.UserCompanyId && uc.UserId == findUser.Id)).ExecuteDelete();
-            _userDepartmentRespository.GetContextEntity().Where(ud => _userCompanyRepository.GetContextEntity().Any(uc => uc.Id == ud.UserCompanyId && uc.UserId == findUser.Id)).ExecuteDelete();
-            _userCompanyRepository.GetContextEntity().Where(uc => uc.UserId == findUser.Id).ExecuteDelete();
+            // Optimizado: obtener IDs de UserCompany primero
+            var userCompanyIds = _userCompanyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(uc => uc.UserId == findUser.Id)
+                .Select(uc => uc.Id)
+                .ToList();
+
+            // Eliminar en batch
+            _userSupervisorRepository.GetContextEntity()
+                .Where(us => userCompanyIds.Contains(us.UserCompanyId))
+                .ExecuteDelete();
+
+            _userDepartmentRespository.GetContextEntity()
+                .Where(ud => userCompanyIds.Contains(ud.UserCompanyId))
+                .ExecuteDelete();
+
+            _userCompanyRepository.GetContextEntity()
+                .Where(uc => uc.UserId == findUser.Id)
+                .ExecuteDelete();
 
             if (editUser.Companies != null && editUser.Companies.Any())
             {
@@ -206,9 +248,6 @@ namespace PrenominaApi.Services.Prenomina
                 }
             }
 
-            _userSupervisorRepository.Save();
-            _userDepartmentRespository.Save();
-            _userCompanyRepository.Save();
             _repository.Save();
 
             return updated;
@@ -216,18 +255,43 @@ namespace PrenominaApi.Services.Prenomina
 
         public ResultLogin ExecuteProcess(AuthLogin authLogin)
         {
-            var findUser = _repository.GetContextEntity().Include(u => u.Role).Where(user => user.Email.Trim().ToLower() == authLogin.Email.Trim().ToLower()).FirstOrDefault();
+            // Optimizado: proyección selectiva
+            var findUser = _repository.GetContextEntity()
+                .AsNoTracking()
+                .Include(u => u.Role)
+                .Where(user => user.Email.Trim().ToLower() == authLogin.Email.Trim().ToLower())
+                .Select(u => new
+                {
+                    u.Id,
+                    u.Email,
+                    u.Password,
+                    u.Name,
+                    RoleCode = u.Role!.Code,
+                    u.RoleId
+                })
+                .FirstOrDefault();
+
             var typeSystem = _globalPropertyService.TypeTenant;
 
             if (findUser != null)
             {
-                var userHasPasswors = new HasPassword() { Password = authLogin.Password };
-                var validPassword = _passwordHasher.VerifyHashedPassword(userHasPasswors, findUser.Password, authLogin.Password);
+                var userHasPassword = new HasPassword() { Password = authLogin.Password };
+                var validPassword = _passwordHasher.VerifyHashedPassword(userHasPassword, findUser.Password, authLogin.Password);
 
                 if (validPassword == PasswordVerificationResult.Success)
                 {
+                    // Reconstruir objeto User mínimo para JWT
+                    var userForToken = new User
+                    {
+                        Id = findUser.Id,
+                        Email = findUser.Email,
+                        Name = findUser.Name,
+                        Password = findUser.Password,
+                        RoleId = findUser.RoleId,
+                    };
+
                     var token = JwtSecurityToken.CreateJwt(
-                        findUser,
+                        userForToken,
                         _configuration.GetValue<string>("Jwt:Key") ?? "",
                         _configuration.GetValue<string>("Jwt:Issuer") ?? "",
                         _configuration.GetValue<int>("Jwt:Duration")
@@ -251,81 +315,155 @@ namespace PrenominaApi.Services.Prenomina
         {
             var result = new UserDetails()
             {
-                Companies = [],
-                Centers = [],
-                Supervisors = []
+                Companies = new List<Company>(),
+                Centers = Enumerable.Empty<Center>(),
+                Supervisors = Enumerable.Empty<Supervisor>()
             };
 
             var findUser = _repository.GetById(Guid.Parse(userId));
 
-            if (findUser != null)
+            if (findUser == null)
             {
-                Role rol = _roleRepository.GetContextEntity().Include(r => r.Sections).Where(r => r.Id == findUser.RoleId).First();
-                rol.Users = [];
-
-                if (rol.Code == RoleCode.Sudo)
-                {
-                    var companies = _companyRepository.GetAll();
-                    var allCenters = _centerRepository.GetContextEntity().Include(c => c.Keys).Where(c => c.Keys != null && c.Keys.Any());
-                    var allSupervisor = _supervisorRespository.GetAll();
-
-                    foreach (var company in companies)
-                    {
-                        result.Companies.Add(company);
-                        var centers = allCenters.Where(c => c.Company == company.Id).Select((c) => new Center { Id = c.Id, Company = c.Company, DepartmentName = c.DepartmentName });
-                        var supervisorsFind = allSupervisor.Where(s => s.Company == company.Id);
-                        result.Supervisors = result.Supervisors.Concat(supervisorsFind);
-                        result.Centers = result.Centers.Concat(centers);
-                    }
-                } else
-                {
-                    List<UserCompany> findCompanies = _userCompanyRepository.GetContextEntity().Include(uc => uc.UserDepartments).Include(uc => uc.UserSupervisors).Where(uc => uc.UserId == findUser.Id).ToList();
-                    foreach (UserCompany userCompany in findCompanies)
-                    {
-                        var departmentsCodes = (userCompany.UserDepartments?.ToList() ?? []).Select(ud => ud.DepartmentCode).ToList();
-                        var supervisorsIds = (userCompany.UserSupervisors?.ToList() ?? []).Select(us => Convert.ToDecimal(us.SupervisorId)).ToList();
-                        var company = _companyRepository.GetById(Convert.ToDecimal(userCompany.CompanyId));
-                        if (company != null)
-                        {
-                            result.Companies.Add(company);
-                            var centers = _centerRepository.GetByFilter(c => departmentsCodes.Contains(c.Id.Trim()) && c.Company == company.Id);
-                            var supervisorsFind = _supervisorRespository.GetByFilter(s => supervisorsIds.Contains(s.Id) && s.Company == company.Id);
-                            result.Supervisors = result.Supervisors.Concat(supervisorsFind);
-                            result.Centers = result.Centers.Concat(centers);
-                        }
-                    }
-                }
-
-                result.role = rol;
-
-                return result;
+                throw new BadHttpRequestException("El usuario no fue encontrado");
             }
 
-            throw new BadHttpRequestException("El usuario no fue encontrado");
+            // Obtener rol con secciones
+            var rol = _roleRepository.GetContextEntity()
+                .AsNoTracking()
+                .Include(r => r.Sections)
+                .Where(r => r.Id == findUser.RoleId)
+                .FirstOrDefault();
+
+            if (rol == null)
+            {
+                throw new BadHttpRequestException("Rol no encontrado");
+            }
+
+            rol.Users = new List<User>();
+
+            if (rol.Code == RoleCode.Sudo)
+            {
+                // Para superusuario, obtener todo con caché
+                var companies = _cacheService.GetOrCreate(
+                    CacheKeys.Companies,
+                    () => _companyRepository.GetAll().ToList(),
+                    TimeSpan.FromMinutes(30)
+                );
+
+                // Obtener centros que tienen keys asociados
+                var allCenters = _centerRepository.GetContextEntity()
+                    .AsNoTracking()
+                    .Include(c => c.Keys)
+                    .Where(c => c.Keys != null && c.Keys.Any())
+                    .Select(c => new Center
+                    {
+                        Id = c.Id,
+                        Company = c.Company,
+                        DepartmentName = c.DepartmentName
+                    })
+                    .ToList();
+
+                var allSupervisors = _supervisorRespository.GetAll().ToList();
+
+                result.Companies = companies;
+                result.Centers = allCenters;
+                result.Supervisors = allSupervisors;
+            }
+            else
+            {
+                // Para usuarios normales, obtener solo sus empresas asignadas
+                var userCompanies = _userCompanyRepository.GetContextEntity()
+                    .AsNoTracking()
+                    .Include(uc => uc.UserDepartments)
+                    .Include(uc => uc.UserSupervisors)
+                    .Where(uc => uc.UserId == findUser.Id)
+                    .ToList();
+
+                var companyIds = userCompanies.Select(uc => uc.CompanyId).ToHashSet();
+                var companies = _companyRepository.GetAll()
+                    .Where(c => companyIds.Contains((int)c.Id))
+                    .ToList();
+
+                var allDepartmentCodes = userCompanies
+                    .SelectMany(uc => uc.UserDepartments ?? Enumerable.Empty<UserDepartment>())
+                    .Select(ud => ud.DepartmentCode.Trim())
+                    .ToHashSet();
+
+                var allSupervisorIds = userCompanies
+                    .SelectMany(uc => uc.UserSupervisors ?? Enumerable.Empty<UserSupervisor>())
+                    .Select(us => (decimal)us.SupervisorId)
+                    .ToHashSet();
+
+                // Obtener centros y supervisores en queries separadas
+                var centers = _centerRepository.GetContextEntity()
+                    .AsNoTracking()
+                    .Where(c => allDepartmentCodes.Contains(c.Id.Trim()) && companyIds.Contains((int)c.Company))
+                    .ToList();
+
+                var supervisors = _supervisorRespository.GetContextEntity()
+                    .AsNoTracking()
+                    .Where(s => allSupervisorIds.Contains(s.Id) && companyIds.Contains((int)s.Company))
+                    .ToList();
+
+                result.Companies = companies;
+                result.Centers = centers;
+                result.Supervisors = supervisors;
+            }
+
+            result.role = rol;
+
+            return result;
         }
 
         public Models.Dto.Output.InitCreateUser ExecuteProcess(Models.Dto.Input.InitCreateUser initCreate)
         {
-            var companies = _companyRepository.GetAll();
-            var centers = _centerRepository.GetContextEntity().Where((item) => item.Keys != null && item.Keys.Any() && !string.IsNullOrEmpty(item.Id) && !string.IsNullOrWhiteSpace(item.Id)).AsNoTracking().ToList();
-            var supervisor = _supervisorRespository.GetAll();
-            var roles = _roleRepository.GetAll();
+            // Usar caché para datos estáticos
+            var companies = _cacheService.GetOrCreate(
+                CacheKeys.Companies,
+                () => _companyRepository.GetAll().ToList(),
+                TimeSpan.FromMinutes(30)
+            );
+
+            var centers = _centerRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(item => item.Keys != null && item.Keys.Any() &&
+                               !string.IsNullOrEmpty(item.Id) &&
+                               !string.IsNullOrWhiteSpace(item.Id))
+                .ToList();
+
+            var supervisors = _supervisorRespository.GetAll();
+
+            var roles = _cacheService.GetOrCreate(
+                CacheKeys.Roles,
+                () => _roleRepository.GetAll().ToList(),
+                TimeSpan.FromMinutes(60)
+            );
 
             return new Models.Dto.Output.InitCreateUser()
             {
-                Companies = companies.ToList(),
+                Companies = companies,
                 Centers = centers,
-                Supervisors = supervisor,
+                Supervisors = supervisors,
                 roles = roles
             };
         }
 
         public IEnumerable<User> ExecuteProcess(GetUserByPermissionSection getUserByPermissionSection)
         {
-            var roles = _roleRepository.GetContextEntity().Include(r => r.Sections).ToList().Where((r) => (r.Sections != null && r.Sections.Any((s) => s.SectionsCode == SectionCode.PendingsAttendanceIncident)) || r.Code == RoleCode.Sudo);
-                
-            var roleIds = roles.Select(r => r.Id).ToList();
-            var users = _repository.GetByFilter((user) => roleIds.Contains(user.RoleId));
+            // Optimizado: obtener roles con secciones de permisos
+            var validRoleIds = _roleRepository.GetContextEntity()
+                .AsNoTracking()
+                .Include(r => r.Sections)
+                .Where(r => r.Code == RoleCode.Sudo ||
+                            (r.Sections != null &&
+                             r.Sections.Any(s => s.SectionsCode == SectionCode.PendingsAttendanceIncident)))
+                .Select(r => r.Id)
+                .ToHashSet();
+
+            var users = _repository.GetContextEntity()
+                .AsNoTracking()
+                .Where(user => validRoleIds.Contains(user.RoleId))
+                .ToList();
 
             return users;
         }
@@ -333,38 +471,63 @@ namespace PrenominaApi.Services.Prenomina
         public IEnumerable<string> ExecuteProcess(GetTenantsUserByCompany getSectionsUserByCompany)
         {
             var findUser = _repository.GetById(Guid.Parse(getSectionsUserByCompany.UserId));
-            var rol = _roleRepository.GetById(findUser!.RoleId);
-            var findUserCompany = _userCompanyRepository.GetByFilter(uc => uc.UserId == Guid.Parse(getSectionsUserByCompany.UserId) && uc.CompanyId == getSectionsUserByCompany.CompanyId).FirstOrDefault();
 
-            if (findUserCompany == null && rol!.Code != RoleCode.Sudo) {
+            if (findUser == null)
+            {
+                throw new BadHttpRequestException("Usuario no encontrado");
+            }
+
+            var rol = _roleRepository.GetById(findUser.RoleId);
+
+            if (rol == null)
+            {
+                throw new BadHttpRequestException("Rol no encontrado");
+            }
+
+            if (rol.Code == RoleCode.Sudo)
+            {
+                // Superusuario: devolver todos los tenants
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    return _centerRepository.GetContextEntity()
+                        .AsNoTracking()
+                        .Include(c => c.Keys)
+                        .Where(c => c.Keys != null && c.Keys.Any())
+                        .Select(d => d.Id.Trim())
+                        .ToList();
+                }
+
+                return _supervisorRespository.GetAll()
+                    .Select(s => s.Id.ToString())
+                    .ToList();
+            }
+
+            // Usuario normal: verificar acceso a empresa
+            var findUserCompany = _userCompanyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(uc => uc.UserId == Guid.Parse(getSectionsUserByCompany.UserId) &&
+                             uc.CompanyId == getSectionsUserByCompany.CompanyId)
+                .FirstOrDefault();
+
+            if (findUserCompany == null)
+            {
                 throw new BadHttpRequestException("El usuario no tiene acceso a esta empresa");
             }
 
-            var tenants = new List<string>();
-
-            if (rol!.Code == RoleCode.Sudo)
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
-                {
-                    tenants = _centerRepository.GetContextEntity().Include(c => c.Keys).Where(c => c.Keys != null && c.Keys.Any()).Select(d => d.Id.Trim()).ToList();
-                }
-                else
-                {
-                    tenants = _supervisorRespository.GetAll().Select(s => s.Id.ToString()).ToList();
-                }
-            } else
-            {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
-                {
-                    tenants = _userDepartmentRespository.GetByFilter(d => d.UserCompanyId == findUserCompany!.Id).Select(d => d.DepartmentCode.Trim()).ToList();
-                }
-                else
-                {
-                    tenants = _userSupervisorRepository.GetByFilter(s => s.UserCompanyId == findUserCompany!.Id).Select(s => s.SupervisorId.ToString()).ToList();
-                }
+                return _userDepartmentRespository.GetContextEntity()
+                    .AsNoTracking()
+                    .Where(d => d.UserCompanyId == findUserCompany.Id)
+                    .Select(d => d.DepartmentCode.Trim())
+                    .ToList();
             }
 
-            return tenants;
+            return _userSupervisorRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(s => s.UserCompanyId == findUserCompany.Id)
+                .Select(s => s.SupervisorId.ToString())
+                .ToList();
         }
 
         public bool ExecuteProcess(DeleteUser deleteUser)
@@ -383,6 +546,9 @@ namespace PrenominaApi.Services.Prenomina
 
             _repository.Delete(findUser);
             _repository.Save();
+
+            // Invalidar caché relacionado
+            _cacheService.RemoveByPrefix("user_");
 
             return true;
         }
