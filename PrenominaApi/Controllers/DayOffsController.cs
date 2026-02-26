@@ -61,8 +61,8 @@ namespace PrenominaApi.Controllers
         public ActionResult<IEnumerable<WorkedDayOffs>> GetWorkedDays([FromQuery] GetWorkedDayOff getWorkedDayOff)
         {
             string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
-            var tenant = HttpContext.Items["tenantSelected"]?.ToString() ?? "";
-            int companyId = int.Parse(company ?? "0");
+            var tenant = !String.IsNullOrEmpty(getWorkedDayOff.Tenant) ? getWorkedDayOff.Tenant : HttpContext.Items["tenantSelected"]?.ToString() ?? "";
+            int companyId = getWorkedDayOff.CompanyId > 0 ? getWorkedDayOff.CompanyId : int.Parse(company ?? "0");
             TypeTenant typeTenant = _globalPropertyService.TypeTenant;
 
             if (companyId <= 0)

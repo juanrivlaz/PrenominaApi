@@ -179,7 +179,12 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             keys = keys.Include(k => k.Tabulator);
-            var listKeys = keys.Where(k => activityIgnore.Any() ? !activityIgnore.Contains(k.Ocupation) : true).ToList();
+            if (activityIgnore != null && activityIgnore.Count > 0)
+            {
+                keys = keys.Where(k => !activityIgnore.Contains(k.Ocupation));
+            }
+
+            var listKeys = keys.ToList();
 
             var employeeCodes = keys.Select(k => k.Codigo).ToList();
             Func<Employee, bool> filter = employee => employee.Company == getWorkedDayOff.CompanyId && employeeCodes.Contains(employee.Codigo) && (employeeIgnore.Any() ? !employeeIgnore.Contains((int)employee.Codigo) : true);

@@ -43,7 +43,7 @@ namespace PrenominaApi.Jobs
             }
             catch (Exception)
             {
-                throw new Exception($"Ocurrio un error en la comunicacion con el reloj");
+                //throw new Exception($"Ocurrio un error en la comunicacion con el reloj");
             }
         }
         public Task StopAsync(CancellationToken cancellationToken)

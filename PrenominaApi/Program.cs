@@ -44,7 +44,10 @@ var connectionPrenomina = $"Server={dbServer};Database={dbNamePrenomina};User Id
 //builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 //builder.Services.AddDbContext<PrenominaDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("PrenominaConnection")));
 
-builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connection));
+builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(
+    connection,
+    sqlOptions => sqlOptions.UseCompatibilityLevel(120)
+));
 builder.Services.AddDbContext<PrenominaDbContext>(options => options.UseSqlServer(connectionPrenomina));
 
 // Config TimeZone
