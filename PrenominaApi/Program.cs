@@ -68,7 +68,7 @@ if (string.IsNullOrEmpty(dbServer) || string.IsNullOrEmpty(dbName) ||
 else
 {
     // Construir connection strings con Encrypt=True para producción
-    var encryptOption = builder.Environment.IsProduction() ? "Encrypt=True;" : "TrustServerCertificate=True;";
+    var encryptOption = "TrustServerCertificate=True;"; //builder.Environment.IsProduction() ? "Encrypt=True;" : "TrustServerCertificate=True;";
     var connection = $"Server={dbServer};Database={dbName};User Id={dbUser};Password={dbPassword};{encryptOption}";
     var connectionPrenomina = $"Server={dbServer};Database={dbNamePrenomina};User Id={dbUser};Password={dbPassword};{encryptOption}";
 
@@ -92,8 +92,8 @@ builder.Services.Configure<BaseUrlConfiguration>(configBaseUrl);
 var baseUrlConfig = configBaseUrl.Get<BaseUrlConfiguration>();
 
 // Config JWT - Obtener clave de variable de entorno
-string jwtKey;
-try
+string jwtKey = builder.Configuration.GetValue<string>("Jwt:Key") ?? "";
+/*try
 {
     jwtKey = AuthorizationConstants.GetJwtSecretKey();
 }
@@ -104,7 +104,7 @@ catch (InvalidOperationException) when (builder.Environment.IsDevelopment())
 #pragma warning disable CS0618 // Type or member is obsolete
     jwtKey = AuthorizationConstants.JWT_SECRET_KEY;
 #pragma warning restore CS0618
-}
+}*/
 
 var key = Encoding.ASCII.GetBytes(jwtKey);
 builder.Services.AddAuthentication(config =>
@@ -135,7 +135,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ICacheService, CacheService>();
 
 // Config Global Properties - Cambiar a Scoped para evitar memory leaks
-builder.Services.AddScoped<GlobalPropertyService>();
+builder.Services.AddSingleton<GlobalPropertyService>();
 
 // Inject Utils Services
 builder.Services.AddSingleton<PDFService>();
@@ -225,7 +225,8 @@ builder.Services.AddCors(options =>
             "company",
             "tenant",
             "X-Requested-With",
-            "Accept"
+            "Accept",
+            "x-signalr-user-agent"
         );
 
         // Restringir métodos HTTP
@@ -242,7 +243,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-    options.JsonSerializerOptions.WriteIndented = builder.Environment.IsDevelopment();
+    options.JsonSerializerOptions.WriteIndented = true;
     options.JsonSerializerOptions.Converters.Add(new DateOnlyJsonConverter());
 });
 
@@ -302,19 +303,20 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
     app.UseDeveloperExceptionPage();
 }
 
 // Usar HTTPS y HSTS en producción
-if (!app.Environment.IsDevelopment())
+/*if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
     app.UseHsts();
-}
+}*/
 
 // Agregar headers de seguridad (antes de otros middlewares)
 app.UseSecurityHeaders();

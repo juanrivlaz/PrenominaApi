@@ -678,16 +678,6 @@ namespace PrenominaApi.Services.Prenomina
 
                             EntryOrExit eos;
 
-                            if (employeeCode == 11 && dateOnly.ToString() == "11/06/2025")
-                            {
-                                Console.WriteLine("Hola");
-                            }
-
-                            if (employeeCode == 93 && dateOnly.ToString() == "26/11/2025")
-                            {
-                                Console.WriteLine("line");
-                            }
-
                             if (lastCheckIn == null)
                             {
                                 eos = EntryOrExit.Entry;
@@ -764,9 +754,9 @@ namespace PrenominaApi.Services.Prenomina
     
         private List<EmployeeCheckIns> BuildCheckInsLogic(List<ClockAttendance> logs, List<(decimal Codigo, decimal Company)> employees)
         {
-            //var employeeMap = employees.ToDictionary(e => e.Codigo.ToString(), e => e.Company);
+            var employeeMap = employees.ToDictionary(e => e.Codigo.ToString(), e => e.Company);
 
-            var orderedLogs = logs//.Where(l => employeeMap.ContainsKey(l.EnrollNumber))
+            var orderedLogs = logs.Where(l => employeeMap.ContainsKey(l.EnrollNumber))
                 .OrderBy(l => l.EnrollNumber)
                 .ThenBy(l => l.Year)
                 .ThenBy(l => l.Month)
@@ -783,7 +773,7 @@ namespace PrenominaApi.Services.Prenomina
             foreach (var log in orderedLogs)
             {
                 var employeeCode = decimal.Parse(log.EnrollNumber);
-                var companyId = 7;//employeeMap[log.EnrollNumber];
+                var companyId = employeeMap[log.EnrollNumber];
 
                 var currentDateTime = new DateTime(log.Year, log.Month, log.Day, log.Hour, log.Minute, log.Second);
                 var dateOnly = DateOnly.FromDateTime(currentDateTime);

@@ -17,14 +17,19 @@ namespace PrenominaApi.Helper
             {
                 new Claim(TokenJWT.JwtRegisteredClaimNames.GivenName, user.Name),
                 new Claim(TokenJWT.JwtRegisteredClaimNames.Email, user.Email),
-                new Claim(TokenJWT.JwtRegisteredClaimNames.Aud, jwtIssuer),
                 new Claim("UserId", user.Id.ToString()),
                 new Claim("RoleId", user.RoleId.ToString()),
                 new Claim("RoleCode", user.Role?.Code ?? ""),
                 new Claim(TokenJWT.JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             }.ToList();
 
-            var token = new TokenJWT.JwtSecurityToken(jwtIssuer, null, claims, expires: DateTime.Now.AddMinutes(durationExpires), signingCredentials: credentials);
+            var token = new TokenJWT.JwtSecurityToken(
+                issuer: jwtIssuer,
+                audience: jwtIssuer,
+                claims: claims,
+                expires: DateTime.Now.AddMinutes(durationExpires),
+                signingCredentials: credentials
+            );
 
             return new TokenJWT.JwtSecurityTokenHandler().WriteToken(token);
         }

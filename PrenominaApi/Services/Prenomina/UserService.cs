@@ -288,6 +288,11 @@ namespace PrenominaApi.Services.Prenomina
                         Name = findUser.Name,
                         Password = findUser.Password,
                         RoleId = findUser.RoleId,
+                        Role = new Role()
+                        {
+                            Code = findUser.RoleCode,
+                            Label = "",
+                        }
                     };
 
                     var token = JwtSecurityToken.CreateJwt(

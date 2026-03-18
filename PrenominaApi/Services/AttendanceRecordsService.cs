@@ -202,7 +202,7 @@ namespace PrenominaApi.Services
 
                 foreach (var date in allDates)
                 {
-                    var key = (employee.Codigo, date);
+                    var key = ((int)employee.Codigo, date);
 
                     // Obtener checkins para esta fecha
                     var dayCheckins = checkinsLookup.TryGetValue(key, out var checks) ? checks : null;
@@ -210,7 +210,7 @@ namespace PrenominaApi.Services
                     // Obtener incidentes para esta fecha
                     var dayIncidents = incidentsLookup.TryGetValue(key, out var incidents)
                         ? incidents
-                        : new List<dynamic>();
+                        : [];
 
                     var defaultIncident = dayIncidents
                         .Where(ai => !ai.IsAdditional && ai.Approved)
@@ -632,9 +632,9 @@ namespace PrenominaApi.Services
             {
                 var empAttendances = listDates.Select(date =>
                 {
-                    var key = (emp.Codigo, date);
+                    var key = ((int)emp.Codigo, date);
                     var checks = checkinsLookup.TryGetValue(key, out var c) ? c : null;
-                    var incidents = incidentsLookup.TryGetValue(key, out var i) ? i : new List<dynamic>();
+                    var incidents = incidentsLookup.TryGetValue(key, out var i) ? i : [];
 
                     var defaultIncident = incidents.FirstOrDefault(ai => !ai.IsAdditional && ai.Approved);
 

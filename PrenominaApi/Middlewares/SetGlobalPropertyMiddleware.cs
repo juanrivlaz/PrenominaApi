@@ -27,6 +27,7 @@ namespace PrenominaApi.Middlewares
             using (var scope = _scopeFactory.CreateScope())
             {
                 var sysConfigService = scope.ServiceProvider.GetRequiredService<IBaseServicePrenomina<SystemConfig>>();
+
                 _globalPropertyService.YearOfOperation = sysConfigService.ExecuteProcess<string, SysYearOperation>("Year-Operation").Year;
                 _globalPropertyService.TypeTenant = TypeTenant.Department;
 

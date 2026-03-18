@@ -126,34 +126,30 @@ namespace PrenominaApi.Services.Prenomina
             // Obtener check-ins con tiempo extra
             var overtimeData = await _context.Database.SqlQueryRaw<OvertimeQueryResult>(
                 """
-                SELECT
-                    eci.employee_code AS EmployeeCode,
-                    MIN(eci.check_in) AS CheckIn,
-                    checkout.CheckOut,
-                    eci.[date] AS [Date],
-                    DATEDIFF(MINUTE, MIN(eci.check_in), checkout.CheckOut) AS TotalMinutesWorked
-                FROM employee_check_ins AS eci
-                CROSS APPLY (
-                    SELECT MAX(ec2.check_in) AS CheckOut
-                    FROM employee_check_ins AS ec2
-                    WHERE ec2.employee_code = eci.employee_code
-                    AND ec2.[date] = eci.[date]
-                    AND ec2.EoS = 1
-                ) AS checkout
+                WITH WorkSummary AS (
+                    SELECT
+                        eci.employee_code AS EmployeeCode,
+                        eci.[date],
+                        MIN(eci.check_in) AS CheckIn,
+                        MAX(CASE WHEN eci.EoS = 1 THEN eci.check_in END) AS CheckOut
+                    FROM employee_check_ins eci
+                    WHERE
+                        eci.[date] BETWEEN @startDate AND @closingDate
+                        AND eci.employee_code IN (
+                            SELECT value FROM OPENJSON(@codes)
+                        )
+                    GROUP BY
+                        eci.employee_code,
+                        eci.[date]
+                )
+                SELECT *,
+                    DATEDIFF(MINUTE, CheckIn, CheckOut) AS TotalMinutesWorked
+                FROM WorkSummary
                 WHERE
-                    eci.EoS = 0
-                    AND checkout.CheckOut IS NOT NULL
-                    AND DATEDIFF(MINUTE, MIN(eci.check_in), checkout.CheckOut) >= (60 * 8) + 30
-                    AND eci.[date] BETWEEN @startDate AND @closingDate
-                    AND eci.employee_code IN (
-                        SELECT value FROM OPENJSON(@codes)
-                    )
-                GROUP BY
-                    eci.employee_code,
-                    eci.[date],
-                    checkout.CheckOut
+                    CheckOut IS NOT NULL
+                    AND DATEDIFF(MINUTE, CheckIn, CheckOut) >= (60 * 8) + 30
                 ORDER BY
-                    eci.employee_code, eci.[date]
+                    EmployeeCode, [date];
                 """,
                 new SqlParameter("@codes", employeeCodesJson),
                 new SqlParameter("@startDate", period.StartDate),

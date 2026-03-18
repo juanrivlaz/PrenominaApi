@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace PrenominaApi.Models.Dto.Input
 {
   /// <summary>
