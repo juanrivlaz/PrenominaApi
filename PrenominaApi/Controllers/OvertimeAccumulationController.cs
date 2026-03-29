@@ -186,6 +186,61 @@ namespace PrenominaApi.Controllers
         }
 
         /// <summary>
+        /// Verifica si hay horas extras pendientes en un periodo
+        /// </summary>
+        [HttpGet("has-pending")]
+        public async Task<ActionResult> HasPending(
+            [FromQuery] int typeNomina,
+            [FromQuery] int numPeriod)
+        {
+            var (hasPending, count) = await _service.HasPendingOvertimes(
+                typeNomina,
+                numPeriod,
+                GetCompanyId(),
+                GetTenant());
+
+            return Ok(new { hasPending, count });
+        }
+
+        /// <summary>
+        /// Envía horas extras al banco de horas
+        /// </summary>
+        [HttpPost("hour-bank")]
+        public async Task<ActionResult<OvertimeOperationResult>> SendToHourBank([FromBody] SendToHourBankInput input)
+        {
+            var result = await _service.SendToHourBank(
+                input,
+                GetCompanyId(),
+                _globalPropertyService.UserId);
+
+            if (!result.Success)
+            {
+                return BadRequest(new { message = result.Message });
+            }
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Agrega un registro manual de horas extras (sistema externo)
+        /// </summary>
+        [HttpPost("manual-entry")]
+        public async Task<ActionResult<OvertimeOperationResult>> ManualEntry([FromBody] ManualOvertimeEntryInput input)
+        {
+            var result = await _service.AddManualEntry(
+                input,
+                GetCompanyId(),
+                _globalPropertyService.UserId);
+
+            if (!result.Success)
+            {
+                return BadRequest(new { message = result.Message });
+            }
+
+            return Ok(result);
+        }
+
+        /// <summary>
         /// Procesa horas extras en lote
         /// </summary>
         [HttpPost("process-batch")]

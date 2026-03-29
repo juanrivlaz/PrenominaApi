@@ -28,6 +28,11 @@ namespace PrenominaApi.Models.Prenomina.Enums
         /// <summary>
         /// Cancelación de movimiento previo
         /// </summary>
-        Cancellation = 5
+        Cancellation = 5,
+
+        /// <summary>
+        /// Horas enviadas a banco de horas (reserva sin uso específico)
+        /// </summary>
+        HourBank = 6
     }
 }

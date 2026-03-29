@@ -120,6 +120,25 @@ namespace PrenominaApi.Services.Prenomina
                 return new List<OvertimeSummaryOutput>();
             }
 
+            // Filtrar empleados excluidos de horas extras
+            var allCodes = employees.Select(e => (int)e.Codigo).ToList();
+            var excludedCodes = await _context.employeeOvertimeConfigs
+                .AsNoTracking()
+                .Where(c => c.CompanyId == companyId && allCodes.Contains(c.EmployeeCode) && c.ExcludeOvertime)
+                .Select(c => c.EmployeeCode)
+                .ToListAsync();
+
+            if (excludedCodes.Any())
+            {
+                var excludedSet = new HashSet<int>(excludedCodes);
+                employees = employees.Where(e => !excludedSet.Contains((int)e.Codigo)).ToList();
+            }
+
+            if (!employees.Any())
+            {
+                return new List<OvertimeSummaryOutput>();
+            }
+
             var employeeCodes = employees.Select(e => e.Codigo).ToList();
             var employeeCodesJson = JsonSerializer.Serialize(employeeCodes);
 
@@ -165,8 +184,23 @@ namespace PrenominaApi.Services.Prenomina
                     m.SourceDate >= period.StartDate &&
                     m.SourceDate <= period.ClosingDate &&
                     (m.MovementType == OvertimeMovementType.Accumulation ||
-                     m.MovementType == OvertimeMovementType.DirectPayment))
+                     m.MovementType == OvertimeMovementType.DirectPayment ||
+                     m.MovementType == OvertimeMovementType.HourBank))
                 .ToListAsync();
+
+            // Obtener IDs de movimientos cancelados (para filtrarlos)
+            var existingMovementIds = existingMovements.Select(m => m.Id).ToList();
+            var cancelledMovementIds = await _context.overtimeMovementLogs
+                .AsNoTracking()
+                .Where(m =>
+                    m.CompanyId == companyId &&
+                    m.MovementType == OvertimeMovementType.Cancellation &&
+                    m.RelatedMovementId != null &&
+                    existingMovementIds.Contains(m.RelatedMovementId.Value))
+                .Select(m => m.RelatedMovementId!.Value)
+                .ToListAsync();
+
+            var cancelledSet = new HashSet<int>(cancelledMovementIds);
 
             // Obtener balances actuales
             var balances = await _context.overtimeAccumulations
@@ -202,19 +236,30 @@ namespace PrenominaApi.Services.Prenomina
 
                     if (movementsByEmployeeDate.TryGetValue((day.EmployeeCode, day.Date), out var movement))
                     {
-                        movementId = movement.Id;
-                        status = movement.MovementType switch
+                        // Si el movimiento fue cancelado, el día vuelve a Pending
+                        if (cancelledSet.Contains(movement.Id))
                         {
-                            OvertimeMovementType.Accumulation => OvertimeDayStatus.Accumulated,
-                            OvertimeMovementType.DirectPayment => OvertimeDayStatus.Paid,
-                            OvertimeMovementType.Cancellation => OvertimeDayStatus.Cancelled,
-                            _ => OvertimeDayStatus.Pending
-                        };
+                            status = OvertimeDayStatus.Pending;
+                            pendingInPeriod += overtimeMinutes;
+                        }
+                        else
+                        {
+                            movementId = movement.Id;
+                            status = movement.MovementType switch
+                            {
+                                OvertimeMovementType.Accumulation => OvertimeDayStatus.Accumulated,
+                                OvertimeMovementType.DirectPayment => OvertimeDayStatus.Paid,
+                                OvertimeMovementType.HourBank => OvertimeDayStatus.HourBank,
+                                _ => OvertimeDayStatus.Pending
+                            };
 
-                        if (status == OvertimeDayStatus.Accumulated)
-                            accumulatedInPeriod += overtimeMinutes;
-                        else if (status == OvertimeDayStatus.Paid)
-                            paidInPeriod += overtimeMinutes;
+                            if (status == OvertimeDayStatus.Accumulated)
+                                accumulatedInPeriod += overtimeMinutes;
+                            else if (status == OvertimeDayStatus.Paid)
+                                paidInPeriod += overtimeMinutes;
+                            else if (status == OvertimeDayStatus.Pending)
+                                pendingInPeriod += overtimeMinutes;
+                        }
                     }
                     else
                     {
@@ -247,6 +292,7 @@ namespace PrenominaApi.Services.Prenomina
                     TotalOvertimeFormatted = FormatMinutes(dayDetails.Sum(d => d.OvertimeMinutes)),
                     AccumulatedMinutes = accumulatedInPeriod,
                     PaidMinutes = paidInPeriod,
+                    PaidMinutesFormatted = FormatMinutes(paidInPeriod),
                     PendingMinutes = pendingInPeriod,
                     CurrentBalance = currentBalance,
                     CurrentBalanceFormatted = FormatMinutes(currentBalance),
@@ -527,6 +573,9 @@ namespace PrenominaApi.Services.Prenomina
                 case OvertimeMovementType.ManualAdjustment:
                     accumulation.AccumulatedMinutes -= movement.Minutes;
                     break;
+                case OvertimeMovementType.HourBank:
+                    accumulation.AccumulatedMinutes -= movement.Minutes;
+                    break;
             }
 
             accumulation.UpdatedAt = DateTime.UtcNow;
@@ -700,6 +749,117 @@ namespace PrenominaApi.Services.Prenomina
             return results;
         }
 
+        /// <summary>
+        /// Envía horas extras al banco de horas (reserva sin uso específico)
+        /// </summary>
+        public async Task<OvertimeOperationResult> SendToHourBank(SendToHourBankInput input, int companyId, string? userId)
+        {
+            var existingMovement = await _context.overtimeMovementLogs
+                .AnyAsync(m =>
+                    m.EmployeeCode == input.EmployeeCode &&
+                    m.CompanyId == companyId &&
+                    m.SourceDate == input.SourceDate &&
+                    (m.MovementType == OvertimeMovementType.Accumulation ||
+                     m.MovementType == OvertimeMovementType.DirectPayment ||
+                     m.MovementType == OvertimeMovementType.HourBank));
+
+            if (existingMovement)
+            {
+                return new OvertimeOperationResult
+                {
+                    Success = false,
+                    Message = "Ya existe un movimiento registrado para esta fecha."
+                };
+            }
+
+            var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
+
+            accumulation.AccumulatedMinutes += input.Minutes;
+            accumulation.UpdatedAt = DateTime.UtcNow;
+
+            var movementLog = new OvertimeMovementLog
+            {
+                OvertimeAccumulationId = accumulation.Id,
+                EmployeeCode = input.EmployeeCode,
+                CompanyId = companyId,
+                MovementType = OvertimeMovementType.HourBank,
+                Minutes = input.Minutes,
+                BalanceAfter = accumulation.AccumulatedMinutes,
+                SourceDate = input.SourceDate,
+                OriginalCheckIn = input.CheckIn,
+                OriginalCheckOut = input.CheckOut,
+                Notes = input.Notes ?? "Enviado a Banco de Horas",
+                ByUserId = Guid.Parse(userId ?? Guid.Empty.ToString()),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.overtimeMovementLogs.Add(movementLog);
+            await _context.SaveChangesAsync();
+
+            return new OvertimeOperationResult
+            {
+                Success = true,
+                Message = "Horas enviadas al banco correctamente.",
+                MovementId = movementLog.Id,
+                NewBalance = accumulation.AccumulatedMinutes,
+                NewBalanceFormatted = FormatMinutes(accumulation.AccumulatedMinutes)
+            };
+        }
+
+        /// <summary>
+        /// Agrega un registro manual de horas extras (de sistema externo)
+        /// </summary>
+        public async Task<OvertimeOperationResult> AddManualEntry(ManualOvertimeEntryInput input, int companyId, string? userId)
+        {
+            var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
+
+            accumulation.AccumulatedMinutes += input.Minutes;
+            accumulation.UpdatedAt = DateTime.UtcNow;
+
+            var notes = input.Notes ?? "";
+            if (!string.IsNullOrWhiteSpace(input.ExternalReference))
+            {
+                notes = $"[Ref: {input.ExternalReference}] {notes}";
+            }
+
+            var movementLog = new OvertimeMovementLog
+            {
+                OvertimeAccumulationId = accumulation.Id,
+                EmployeeCode = input.EmployeeCode,
+                CompanyId = companyId,
+                MovementType = OvertimeMovementType.ManualAdjustment,
+                Minutes = input.Minutes,
+                BalanceAfter = accumulation.AccumulatedMinutes,
+                SourceDate = input.SourceDate,
+                Notes = string.IsNullOrWhiteSpace(notes) ? "Registro externo de tiempo extra" : notes,
+                ByUserId = Guid.Parse(userId ?? Guid.Empty.ToString()),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.overtimeMovementLogs.Add(movementLog);
+            await _context.SaveChangesAsync();
+
+            return new OvertimeOperationResult
+            {
+                Success = true,
+                Message = "Registro externo agregado correctamente.",
+                MovementId = movementLog.Id,
+                NewBalance = accumulation.AccumulatedMinutes,
+                NewBalanceFormatted = FormatMinutes(accumulation.AccumulatedMinutes)
+            };
+        }
+
+        /// <summary>
+        /// Verifica si hay empleados con horas extras pendientes en un periodo
+        /// </summary>
+        public async Task<(bool HasPending, int Count)> HasPendingOvertimes(
+            int typeNomina, int numPeriod, int companyId, string? tenant)
+        {
+            var summaries = await GetOvertimeSummary(typeNomina, numPeriod, companyId, tenant);
+            var pendingEmployees = summaries.Where(s => s.PendingMinutes > 0).ToList();
+            return (pendingEmployees.Any(), pendingEmployees.Count);
+        }
+
         #region Helper Methods
 
         private async Task<OvertimeAccumulation> GetOrCreateAccumulation(int employeeCode, int companyId)
@@ -763,6 +923,7 @@ namespace PrenominaApi.Services.Prenomina
             OvertimeDayStatus.Accumulated => "Acumulado",
             OvertimeDayStatus.Paid => "Pagado",
             OvertimeDayStatus.Cancelled => "Cancelado",
+            OvertimeDayStatus.HourBank => "Banco de Horas",
             _ => "Desconocido"
         };
 
@@ -773,6 +934,7 @@ namespace PrenominaApi.Services.Prenomina
             OvertimeMovementType.DirectPayment => "Pago directo",
             OvertimeMovementType.ManualAdjustment => "Ajuste manual",
             OvertimeMovementType.Cancellation => "Cancelación",
+            OvertimeMovementType.HourBank => "Banco de Horas",
             _ => "Desconocido"
         };
 

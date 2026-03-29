@@ -1,4 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Data;
+using PrenominaApi.Filters;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
@@ -11,15 +15,27 @@ namespace PrenominaApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [ServiceFilter(typeof(CompanyTenantValidationFilter))]
     public class EmployeesController : ControllerBase
     {
         private readonly IBaseService<Employee> _service;
         private readonly GlobalPropertyService _globalPropertyService;
+        private readonly PrenominaDbContext _context;
 
-        public EmployeesController(IBaseService<Employee> service, GlobalPropertyService globalPropertyService)
+        public EmployeesController(
+            IBaseService<Employee> service,
+            GlobalPropertyService globalPropertyService,
+            PrenominaDbContext context)
         {
             _service = service;
             _globalPropertyService = globalPropertyService;
+            _context = context;
+        }
+
+        private int GetCompanyId()
+        {
+            var company = HttpContext.Items["companySelected"]?.ToString() ?? "0";
+            return int.Parse(company);
         }
 
         // GET: api/Employees
@@ -47,6 +63,37 @@ namespace PrenominaApi.Controllers
             var result = _service.GetWithPagination(paginator.Page, paginator.PageSize, filter);
 
             return Ok(result);
+        }
+
+        [HttpPut("{employeeCode}/exclude-overtime")]
+        [Authorize]
+        public async Task<ActionResult<bool>> UpdateExcludeOvertime(int employeeCode, [FromBody] ExcludeOvertimeInput input)
+        {
+            var companyId = GetCompanyId();
+
+            var config = await _context.employeeOvertimeConfigs
+                .FirstOrDefaultAsync(c => c.EmployeeCode == employeeCode && c.CompanyId == companyId);
+
+            if (config == null)
+            {
+                config = new Models.Prenomina.EmployeeOvertimeConfig
+                {
+                    EmployeeCode = employeeCode,
+                    CompanyId = companyId,
+                    ExcludeOvertime = input.ExcludeOvertime,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _context.employeeOvertimeConfigs.Add(config);
+            }
+            else
+            {
+                config.ExcludeOvertime = input.ExcludeOvertime;
+                config.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(true);
         }
 
         [HttpGet("by-payroll")]

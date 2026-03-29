@@ -25,6 +25,7 @@ namespace PrenominaApi.Models.Dto.Output
         /// Minutos ya pagados del período
         /// </summary>
         public int PaidMinutes { get; set; }
+        public string PaidMinutesFormatted { get; set; } = string.Empty;
 
         /// <summary>
         /// Minutos pendientes por procesar

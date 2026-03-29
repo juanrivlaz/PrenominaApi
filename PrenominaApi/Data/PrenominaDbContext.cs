@@ -54,6 +54,7 @@ namespace PrenominaApi.Data
         public DbSet<EmployeeAbsenceRequests> employeeAbsenceRequests { get; set; }
         public DbSet<OvertimeAccumulation> overtimeAccumulations { get; set; }
         public DbSet<OvertimeMovementLog> overtimeMovementLogs { get; set; }
+        public DbSet<EmployeeOvertimeConfig> employeeOvertimeConfigs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -244,6 +245,11 @@ namespace PrenominaApi.Data
                 entity.HasIndex(ml => new { ml.CompanyId, ml.CreatedAt });
                 entity.HasOne(ml => ml.User).WithMany().HasForeignKey(ml => ml.ByUserId);
                 entity.HasOne(ml => ml.RelatedMovement).WithMany().HasForeignKey(ml => ml.RelatedMovementId);
+            });
+
+            modelBuilder.Entity<EmployeeOvertimeConfig>(entity =>
+            {
+                entity.HasIndex(c => new { c.EmployeeCode, c.CompanyId }).IsUnique();
             });
 
             var converter = new ValueConverter<IEnumerable<string>, string>(

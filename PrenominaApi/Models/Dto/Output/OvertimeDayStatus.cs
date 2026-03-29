@@ -8,6 +8,7 @@ namespace PrenominaApi.Models.Dto.Output
         Pending = 0,
         Accumulated = 1,
         Paid = 2,
-        Cancelled = 3
+        Cancelled = 3,
+        HourBank = 4
     }
 }
