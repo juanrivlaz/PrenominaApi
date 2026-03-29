@@ -33,6 +33,11 @@ namespace PrenominaApi.Models.Prenomina.Enums
         /// <summary>
         /// Horas enviadas a banco de horas (reserva sin uso específico)
         /// </summary>
-        HourBank = 6
+        HourBank = 6,
+
+        /// <summary>
+        /// Registro externo de tiempo extra (de otro sistema)
+        /// </summary>
+        ExternalEntry = 7
     }
 }
