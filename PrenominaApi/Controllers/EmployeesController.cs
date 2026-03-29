@@ -65,6 +65,21 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpGet("overtime-configs")]
+        [Authorize]
+        public async Task<ActionResult> GetOvertimeConfigs()
+        {
+            var companyId = GetCompanyId();
+
+            var configs = await _context.employeeOvertimeConfigs
+                .AsNoTracking()
+                .Where(c => c.CompanyId == companyId && c.ExcludeOvertime)
+                .Select(c => c.EmployeeCode)
+                .ToListAsync();
+
+            return Ok(configs);
+        }
+
         [HttpPut("{employeeCode}/exclude-overtime")]
         [Authorize]
         public async Task<ActionResult<bool>> UpdateExcludeOvertime(int employeeCode, [FromBody] ExcludeOvertimeInput input)
