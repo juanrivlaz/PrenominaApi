@@ -17,3 +17,19 @@ BEGIN
         ON employee_overtime_configs (employee_code, company_id);
 END
 GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'activity_overtime_configs')
+BEGIN
+    CREATE TABLE activity_overtime_configs (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        activity_id INT NOT NULL,
+        company_id INT NOT NULL,
+        exclude_overtime BIT NOT NULL DEFAULT 0,
+        created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        updated_at DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+    );
+
+    CREATE UNIQUE INDEX IX_activity_overtime_configs_activity_company
+        ON activity_overtime_configs (activity_id, company_id);
+END
+GO

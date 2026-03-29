@@ -109,6 +109,7 @@ namespace PrenominaApi.Services.Prenomina
                 .Select(k => new
                 {
                     k.Codigo,
+                    k.Ocupation,
                     FullName = $"{k.Employee.Name} {k.Employee.LastName} {k.Employee.MLastName}",
                     Department = k.CenterItem != null ? k.CenterItem.DepartmentName : string.Empty,
                     JobPosition = k.Tabulator.Activity
@@ -120,19 +121,33 @@ namespace PrenominaApi.Services.Prenomina
                 return new List<OvertimeSummaryOutput>();
             }
 
-            // Filtrar empleados excluidos de horas extras
-            var allCodes = employees.Select(e => (int)e.Codigo).ToList();
-            var excludedCodes = await _context.employeeOvertimeConfigs
+            // Filtrar empleados excluidos de horas extras por actividad
+            var activityIds = employees.Select(e => e.Ocupation).Distinct().ToList();
+            var excludedActivities = await _context.activityOvertimeConfigs
                 .AsNoTracking()
-                .Where(c => c.CompanyId == companyId && allCodes.Contains(c.EmployeeCode) && c.ExcludeOvertime)
-                .Select(c => c.EmployeeCode)
+                .Where(c => c.CompanyId == companyId && activityIds.Contains(c.ActivityId) && c.ExcludeOvertime)
+                .Select(c => c.ActivityId)
                 .ToListAsync();
+            var excludedActivitySet = new HashSet<int>(excludedActivities);
 
-            if (excludedCodes.Any())
+            // Filtrar empleados excluidos individualmente (prioridad sobre actividad)
+            var allCodes = employees.Select(e => (int)e.Codigo).ToList();
+            var employeeConfigs = await _context.employeeOvertimeConfigs
+                .AsNoTracking()
+                .Where(c => c.CompanyId == companyId && allCodes.Contains(c.EmployeeCode))
+                .ToDictionaryAsync(c => c.EmployeeCode, c => c.ExcludeOvertime);
+
+            employees = employees.Where(e =>
             {
-                var excludedSet = new HashSet<int>(excludedCodes);
-                employees = employees.Where(e => !excludedSet.Contains((int)e.Codigo)).ToList();
-            }
+                var code = (int)e.Codigo;
+                // Si existe config individual, tiene prioridad
+                if (employeeConfigs.TryGetValue(code, out var excludeByEmployee))
+                    return !excludeByEmployee;
+                // Si no, verificar por actividad
+                if (excludedActivitySet.Contains(e.Ocupation))
+                    return false;
+                return true;
+            }).ToList();
 
             if (!employees.Any())
             {

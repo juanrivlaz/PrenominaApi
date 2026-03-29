@@ -55,6 +55,7 @@ namespace PrenominaApi.Data
         public DbSet<OvertimeAccumulation> overtimeAccumulations { get; set; }
         public DbSet<OvertimeMovementLog> overtimeMovementLogs { get; set; }
         public DbSet<EmployeeOvertimeConfig> employeeOvertimeConfigs { get; set; }
+        public DbSet<ActivityOvertimeConfig> activityOvertimeConfigs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -250,6 +251,11 @@ namespace PrenominaApi.Data
             modelBuilder.Entity<EmployeeOvertimeConfig>(entity =>
             {
                 entity.HasIndex(c => new { c.EmployeeCode, c.CompanyId }).IsUnique();
+            });
+
+            modelBuilder.Entity<ActivityOvertimeConfig>(entity =>
+            {
+                entity.HasIndex(c => new { c.ActivityId, c.CompanyId }).IsUnique();
             });
 
             var converter = new ValueConverter<IEnumerable<string>, string>(
