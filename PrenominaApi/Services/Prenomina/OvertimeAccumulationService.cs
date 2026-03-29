@@ -243,7 +243,7 @@ namespace PrenominaApi.Services.Prenomina
                 var empExternals = externalByEmployee.GetValueOrDefault((int)emp.Codigo, new List<OvertimeMovementLog>());
 
                 // Filtrar externos cancelados y los que ya tienen un día de check-in en la misma fecha
-                checkinDatesByEmployee.TryGetValue(emp.Codigo, out var checkinDates);
+                checkinDatesByEmployee.TryGetValue((int)emp.Codigo, out var checkinDates);
                 var pendingExternals = empExternals
                     .Where(e => !cancelledSet.Contains(e.Id))
                     .Where(e => checkinDates == null || !checkinDates.Contains(e.SourceDate))
