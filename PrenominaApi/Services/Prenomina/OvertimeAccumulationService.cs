@@ -223,7 +223,7 @@ namespace PrenominaApi.Services.Prenomina
 
             var movementsByEmployeeDate = existingMovements
                 .GroupBy(m => (m.EmployeeCode, m.SourceDate))
-                .ToDictionary(g => g.Key, g => g.First());
+                .ToDictionary(g => g.Key, g => g.Where(m => !cancelledSet.Contains(m.Id)).ToList());
 
             var result = new List<OvertimeSummaryOutput>();
 
@@ -263,20 +263,15 @@ namespace PrenominaApi.Services.Prenomina
                 foreach (var day in empOvertimes)
                 {
                     var overtimeMinutes = day.TotalMinutesWorked - (8 * 60);
-                    var status = OvertimeDayStatus.Pending;
-                    int? movementId = null;
 
-                    if (movementsByEmployeeDate.TryGetValue((day.EmployeeCode, day.Date), out var movement))
+                    if (movementsByEmployeeDate.TryGetValue((day.EmployeeCode, day.Date), out var movements) && movements.Any())
                     {
-                        if (cancelledSet.Contains(movement.Id))
+                        var processedMinutes = movements.Sum(m => m.Minutes);
+                        var remaining = overtimeMinutes - processedMinutes;
+
+                        foreach (var mov in movements)
                         {
-                            status = OvertimeDayStatus.Pending;
-                            pendingInPeriod += overtimeMinutes;
-                        }
-                        else
-                        {
-                            movementId = movement.Id;
-                            status = movement.MovementType switch
+                            var movStatus = mov.MovementType switch
                             {
                                 OvertimeMovementType.Accumulation => OvertimeDayStatus.Accumulated,
                                 OvertimeMovementType.DirectPayment => OvertimeDayStatus.Paid,
@@ -284,44 +279,85 @@ namespace PrenominaApi.Services.Prenomina
                                 _ => OvertimeDayStatus.Pending
                             };
 
-                            if (status == OvertimeDayStatus.Accumulated)
-                                accumulatedInPeriod += overtimeMinutes;
-                            else if (status == OvertimeDayStatus.Paid)
-                                paidInPeriod += overtimeMinutes;
-                            else if (status == OvertimeDayStatus.Pending)
-                                pendingInPeriod += overtimeMinutes;
+                            if (movStatus == OvertimeDayStatus.Accumulated)
+                                accumulatedInPeriod += mov.Minutes;
+                            else if (movStatus == OvertimeDayStatus.Paid)
+                                paidInPeriod += mov.Minutes;
+                        }
+
+                        // Si queda tiempo sin procesar, agregar fila pendiente
+                        if (remaining > 0)
+                        {
+                            pendingInPeriod += remaining;
+                            dayDetails.Add(new OvertimeDayDetail
+                            {
+                                Date = day.Date,
+                                CheckIn = day.CheckIn,
+                                CheckOut = day.CheckOut,
+                                TotalMinutesWorked = day.TotalMinutesWorked,
+                                OvertimeMinutes = remaining,
+                                OvertimeFormatted = FormatMinutes(remaining),
+                                Status = OvertimeDayStatus.Pending,
+                                StatusLabel = "Pendiente",
+                                MovementId = null
+                            });
+                        }
+
+                        // Agregar filas de cada movimiento procesado
+                        foreach (var mov in movements)
+                        {
+                            var movStatus = mov.MovementType switch
+                            {
+                                OvertimeMovementType.Accumulation => OvertimeDayStatus.Accumulated,
+                                OvertimeMovementType.DirectPayment => OvertimeDayStatus.Paid,
+                                OvertimeMovementType.HourBank => OvertimeDayStatus.HourBank,
+                                _ => OvertimeDayStatus.Pending
+                            };
+
+                            dayDetails.Add(new OvertimeDayDetail
+                            {
+                                Date = day.Date,
+                                CheckIn = day.CheckIn,
+                                CheckOut = day.CheckOut,
+                                TotalMinutesWorked = day.TotalMinutesWorked,
+                                OvertimeMinutes = mov.Minutes,
+                                OvertimeFormatted = FormatMinutes(mov.Minutes),
+                                Status = movStatus,
+                                StatusLabel = GetStatusLabel(movStatus),
+                                MovementId = mov.Id
+                            });
                         }
                     }
                     else
                     {
                         pendingInPeriod += overtimeMinutes;
+                        dayDetails.Add(new OvertimeDayDetail
+                        {
+                            Date = day.Date,
+                            CheckIn = day.CheckIn,
+                            CheckOut = day.CheckOut,
+                            TotalMinutesWorked = day.TotalMinutesWorked,
+                            OvertimeMinutes = overtimeMinutes,
+                            OvertimeFormatted = FormatMinutes(overtimeMinutes),
+                            Status = OvertimeDayStatus.Pending,
+                            StatusLabel = GetStatusLabel(OvertimeDayStatus.Pending),
+                            MovementId = null
+                        });
                     }
-
-                    dayDetails.Add(new OvertimeDayDetail
-                    {
-                        Date = day.Date,
-                        CheckIn = day.CheckIn,
-                        CheckOut = day.CheckOut,
-                        TotalMinutesWorked = day.TotalMinutesWorked,
-                        OvertimeMinutes = overtimeMinutes,
-                        OvertimeFormatted = FormatMinutes(overtimeMinutes),
-                        Status = status,
-                        StatusLabel = GetStatusLabel(status),
-                        MovementId = movementId
-                    });
                 }
 
                 // Agregar registros externos como días pendientes
                 foreach (var ext in pendingExternals)
                 {
                     // Verificar si ya fue procesado (acumulado/pagado/banco)
-                    var isProcessed = movementsByEmployeeDate.ContainsKey((ext.EmployeeCode, ext.SourceDate));
-                    if (isProcessed)
+                    if (movementsByEmployeeDate.TryGetValue((ext.EmployeeCode, ext.SourceDate), out var procMovements) && procMovements.Any())
                     {
-                        var proc = movementsByEmployeeDate[(ext.EmployeeCode, ext.SourceDate)];
-                        if (!cancelledSet.Contains(proc.Id))
+                        var processedMin = procMovements.Sum(m => m.Minutes);
+                        var remainingExt = ext.Minutes - processedMin;
+
+                        foreach (var mov in procMovements)
                         {
-                            var procStatus = proc.MovementType switch
+                            var movStatus = mov.MovementType switch
                             {
                                 OvertimeMovementType.Accumulation => OvertimeDayStatus.Accumulated,
                                 OvertimeMovementType.DirectPayment => OvertimeDayStatus.Paid,
@@ -329,10 +365,10 @@ namespace PrenominaApi.Services.Prenomina
                                 _ => OvertimeDayStatus.Pending
                             };
 
-                            if (procStatus == OvertimeDayStatus.Accumulated)
-                                accumulatedInPeriod += ext.Minutes;
-                            else if (procStatus == OvertimeDayStatus.Paid)
-                                paidInPeriod += ext.Minutes;
+                            if (movStatus == OvertimeDayStatus.Accumulated)
+                                accumulatedInPeriod += mov.Minutes;
+                            else if (movStatus == OvertimeDayStatus.Paid)
+                                paidInPeriod += mov.Minutes;
 
                             dayDetails.Add(new OvertimeDayDetail
                             {
@@ -340,14 +376,32 @@ namespace PrenominaApi.Services.Prenomina
                                 CheckIn = TimeOnly.MinValue,
                                 CheckOut = null,
                                 TotalMinutesWorked = ext.Minutes,
-                                OvertimeMinutes = ext.Minutes,
-                                OvertimeFormatted = $"{FormatMinutes(ext.Minutes)} (externo)",
-                                Status = procStatus,
-                                StatusLabel = GetStatusLabel(procStatus),
-                                MovementId = proc.Id
+                                OvertimeMinutes = mov.Minutes,
+                                OvertimeFormatted = $"{FormatMinutes(mov.Minutes)} (externo)",
+                                Status = movStatus,
+                                StatusLabel = GetStatusLabel(movStatus),
+                                MovementId = mov.Id
                             });
-                            continue;
                         }
+
+                        if (remainingExt > 0)
+                        {
+                            pendingInPeriod += remainingExt;
+                            dayDetails.Add(new OvertimeDayDetail
+                            {
+                                Date = ext.SourceDate,
+                                CheckIn = TimeOnly.MinValue,
+                                CheckOut = null,
+                                TotalMinutesWorked = ext.Minutes,
+                                OvertimeMinutes = remainingExt,
+                                OvertimeFormatted = $"{FormatMinutes(remainingExt)} (externo)",
+                                Status = OvertimeDayStatus.Pending,
+                                StatusLabel = "Pendiente (externo)",
+                                MovementId = null
+                            });
+                        }
+
+                        continue;
                     }
 
                     pendingInPeriod += ext.Minutes;
@@ -397,25 +451,6 @@ namespace PrenominaApi.Services.Prenomina
         /// </summary>
         public async Task<OvertimeOperationResult> AccumulateOvertime(AccumulateOvertimeInput input, int companyId, string? userId)
         {
-            // Verificar que no exista un movimiento para esa fecha
-            var existingMovement = await _context.overtimeMovementLogs
-                .AnyAsync(m =>
-                    m.EmployeeCode == input.EmployeeCode &&
-                    m.CompanyId == companyId &&
-                    m.SourceDate == input.SourceDate &&
-                    (m.MovementType == OvertimeMovementType.Accumulation ||
-                     m.MovementType == OvertimeMovementType.DirectPayment));
-
-            if (existingMovement)
-            {
-                return new OvertimeOperationResult
-                {
-                    Success = false,
-                    Message = "Ya existe un movimiento registrado para esta fecha."
-                };
-            }
-
-            // Obtener o crear acumulación
             var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
 
             accumulation.AccumulatedMinutes += input.Minutes;
@@ -456,23 +491,6 @@ namespace PrenominaApi.Services.Prenomina
         /// </summary>
         public async Task<OvertimeOperationResult> PayOvertimeDirect(PayOvertimeDirectInput input, int companyId, string? userId)
         {
-            var existingMovement = await _context.overtimeMovementLogs
-                .AnyAsync(m =>
-                    m.EmployeeCode == input.EmployeeCode &&
-                    m.CompanyId == companyId &&
-                    m.SourceDate == input.SourceDate &&
-                    (m.MovementType == OvertimeMovementType.Accumulation ||
-                     m.MovementType == OvertimeMovementType.DirectPayment));
-
-            if (existingMovement)
-            {
-                return new OvertimeOperationResult
-                {
-                    Success = false,
-                    Message = "Ya existe un movimiento registrado para esta fecha."
-                };
-            }
-
             var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
             accumulation.PaidMinutes += input.Minutes;
             accumulation.UpdatedAt = DateTime.UtcNow;
@@ -843,24 +861,6 @@ namespace PrenominaApi.Services.Prenomina
         /// </summary>
         public async Task<OvertimeOperationResult> SendToHourBank(SendToHourBankInput input, int companyId, string? userId)
         {
-            var existingMovement = await _context.overtimeMovementLogs
-                .AnyAsync(m =>
-                    m.EmployeeCode == input.EmployeeCode &&
-                    m.CompanyId == companyId &&
-                    m.SourceDate == input.SourceDate &&
-                    (m.MovementType == OvertimeMovementType.Accumulation ||
-                     m.MovementType == OvertimeMovementType.DirectPayment ||
-                     m.MovementType == OvertimeMovementType.HourBank));
-
-            if (existingMovement)
-            {
-                return new OvertimeOperationResult
-                {
-                    Success = false,
-                    Message = "Ya existe un movimiento registrado para esta fecha."
-                };
-            }
-
             var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
 
             accumulation.AccumulatedMinutes += input.Minutes;
