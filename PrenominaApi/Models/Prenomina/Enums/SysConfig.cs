@@ -13,5 +13,7 @@ namespace PrenominaApi.Models.Prenomina.Enums
         public const string UserDefault = "system@prenominaapi.com";
         public const string ConfigReports = "Config-Reports";
         public const string ConfigYear = "Year-Operation";
+        public const string BioTimeSync = "BioTime-Sync";
+        public const string BioTimeCredentials = "BioTime-Credentials";
     }
 }

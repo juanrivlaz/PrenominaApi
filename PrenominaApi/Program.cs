@@ -10,6 +10,7 @@ using PrenominaApi.Data;
 using PrenominaApi.Filters;
 using PrenominaApi.Helper;
 using PrenominaApi.Jobs;
+using PrenominaApi.Services.Prenomina;
 using PrenominaApi.Middlewares;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Services.Excel;
@@ -153,9 +154,15 @@ builder.Services.AddScoped<IExcelGenerator, ReportIncidenceExcelGenerator>();
 builder.Services.AddScoped<IExcelGeneratorFactory, ExcelGeneratorFactory>();
 builder.Services.AddScoped<ExcelReportService>();
 
+// Register BioTime sync
+builder.Services.AddHttpClient();
+builder.Services.AddDataProtection();
+builder.Services.AddScoped<BioTimeSyncService>();
+
 // Register Jobs
 builder.Services.AddHostedService<AttendaceJob>();
 builder.Services.AddHostedService<ClockJob>();
+builder.Services.AddHostedService<BioTimeSyncJob>();
 
 // Apply Filter Controls
 builder.Services.AddScoped<CompanyTenantValidationFilter>();
