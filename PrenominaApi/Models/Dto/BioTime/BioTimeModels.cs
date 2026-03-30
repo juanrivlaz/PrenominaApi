@@ -49,11 +49,11 @@ namespace PrenominaApi.Models.Dto.BioTime
         [JsonPropertyName("att_date")]
         public string AttDate { get; set; } = string.Empty;
 
-        [JsonPropertyName("clock_in")]
-        public string? ClockIn { get; set; }
+        [JsonPropertyName("check_in")]
+        public string? CheckIn { get; set; }
 
-        [JsonPropertyName("clock_out")]
-        public string? ClockOut { get; set; }
+        [JsonPropertyName("check_out")]
+        public string? CheckOut { get; set; }
     }
 
     /// <summary>

@@ -188,8 +188,8 @@ namespace PrenominaApi.Services.Prenomina
                 if (!DateOnly.TryParseExact(record.AttDate, "dd-MM-yyyy", null, System.Globalization.DateTimeStyles.None, out var dateOnly))
                     continue;
 
-                // Insertar clock_in como Entry
-                if (!string.IsNullOrWhiteSpace(record.ClockIn) && TimeOnly.TryParse(record.ClockIn, out var clockIn))
+                // Insertar check_in como Entry
+                if (!string.IsNullOrWhiteSpace(record.CheckIn) && TimeOnly.TryParse(record.CheckIn, out var checkIn))
                 {
                     checkIns.Add(new EmployeeCheckIns
                     {
@@ -197,7 +197,7 @@ namespace PrenominaApi.Services.Prenomina
                         EmployeeCode = employeeCode,
                         CompanyId = companyId,
                         Date = dateOnly,
-                        CheckIn = clockIn,
+                        CheckIn = checkIn,
                         EoS = EntryOrExit.Entry,
                         NumConc = "",
                         Period = 0,
@@ -207,8 +207,8 @@ namespace PrenominaApi.Services.Prenomina
                     });
                 }
 
-                // Insertar clock_out como Exit
-                if (!string.IsNullOrWhiteSpace(record.ClockOut) && TimeOnly.TryParse(record.ClockOut, out var clockOut))
+                // Insertar check_out como Exit
+                if (!string.IsNullOrWhiteSpace(record.CheckOut) && TimeOnly.TryParse(record.CheckOut, out var checkOut))
                 {
                     checkIns.Add(new EmployeeCheckIns
                     {
@@ -216,7 +216,7 @@ namespace PrenominaApi.Services.Prenomina
                         EmployeeCode = employeeCode,
                         CompanyId = companyId,
                         Date = dateOnly,
-                        CheckIn = clockOut,
+                        CheckIn = checkOut,
                         EoS = EntryOrExit.Exit,
                         NumConc = "",
                         Period = 0,
