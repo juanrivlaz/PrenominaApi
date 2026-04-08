@@ -402,7 +402,7 @@ namespace PrenominaApi.Services.Prenomina
                 // Obtener centros y supervisores en queries separadas
                 var centers = _centerRepository.GetContextEntity()
                     .AsNoTracking()
-                    .Where(c => allDepartmentCodes.Contains(c.Id.Trim()) && companyIds.Contains((int)c.Company))
+                    .Where(c => allDepartmentCodes.Select(x => int.Parse(x)).Contains(int.Parse(c.Id.Trim())) && companyIds.Contains((int)c.Company))
                     .ToList();
 
                 var supervisors = _supervisorRespository.GetContextEntity()

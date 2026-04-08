@@ -166,9 +166,9 @@ namespace PrenominaApi.Services.Prenomina
             var empCodes = records.Select(r => r.EmpCode).Distinct().ToList();
 
             // Buscar empleados activos en la base de datos
-            var employees = _keyRepository.GetByFilter(e =>
+            var employees = _keyRepository.GetContextEntity().Include(k => k.Employee).Where(e =>
                 empCodes.Contains(e.Codigo.ToString()) && e.Employee.Active == 'S')
-                .Select(e => (e.Codigo, e.Company))
+                .Select(e => new { e.Codigo, e.Company })
                 .ToList();
 
             var employeeMap = employees.ToDictionary(e => e.Codigo.ToString(), e => e.Company);
