@@ -419,7 +419,7 @@ namespace PrenominaApi.Services.Prenomina
                 var tenantName = "";
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)
                 {
-                    tenantName = _centerRepository.GetByFilter(c => c.Id.Trim() == downloadWorked.Tenant && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
+                    tenantName = _centerRepository.GetByFilter(c => int.Parse(c.Id.Trim()) == int.Parse(downloadWorked.Tenant!) && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
                 }
                 else
                 {
@@ -487,7 +487,7 @@ namespace PrenominaApi.Services.Prenomina
                 var tenantName = "";
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)
                 {
-                    tenantName = _centerRepository.GetByFilter(c => c.Id.Trim() == downloadWorked.Tenant && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
+                    tenantName = _centerRepository.GetByFilter(c => int.Parse(c.Id.Trim()) == int.Parse(downloadWorked.Tenant!) && c.Company == company!.Id).FirstOrDefault()?.DepartmentName ?? "";
                 }
                 else
                 {

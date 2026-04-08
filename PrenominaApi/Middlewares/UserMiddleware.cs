@@ -55,7 +55,7 @@ namespace PrenominaApi.Middlewares
                                 throw new BadHttpRequestException("No tienes acceso a esta empresa");
                             }
 
-                            var existInCenters = userDetails.Centers?.ToList().Exists(c => c.Id.Trim() == tenantSelected) ?? false;
+                            var existInCenters = userDetails.Centers?.ToList().Exists(c => int.Parse(c.Id.Trim()) == int.Parse(tenantSelected)) ?? false;
                             var existInSupervisor = userDetails.Supervisors?.ToList().Exists(s => s.Id == Convert.ToDecimal(tenantSelected)) ?? false;
 
                             if (tenantSelected != "all" && !existInSupervisor && !existInCenters && !isPathMe)

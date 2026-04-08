@@ -564,7 +564,7 @@ namespace PrenominaApi.Services
             if (downloadAttendance.Tenant != "-999")
             {
                 tenantName = _globalPropertyService.TypeTenant == TypeTenant.Department
-                    ? _centerRepository.GetByFilter(c => c.Id.Trim() == downloadAttendance.Tenant && c.Company == company!.Id)
+                    ? _centerRepository.GetByFilter(c => int.Parse(c.Id.Trim()) == int.Parse(downloadAttendance.Tenant!) && c.Company == company!.Id)
                         .FirstOrDefault()?.DepartmentName ?? ""
                     : _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!))
                         .FirstOrDefault()?.Name ?? "";
