@@ -565,7 +565,7 @@ namespace PrenominaApi.Services
             {
                 tenantName = _globalPropertyService.TypeTenant == TypeTenant.Department
                     ? _centerRepository.GetByFilter(c => c.Company == company!.Id)
-                        .FirstOrDefault(c => int.Parse(c.Id.Trim()) == int.Parse(downloadAttendance.Tenant!))?.DepartmentName ?? ""
+                        .FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Id) && int.TryParse(c.Id.Trim(), out var cId) && cId == int.Parse(downloadAttendance.Tenant!))?.DepartmentName ?? ""
                     : _supervisorRepository.GetByFilter(s => s.Id == int.Parse(downloadAttendance.Tenant!))
                         .FirstOrDefault()?.Name ?? "";
             }

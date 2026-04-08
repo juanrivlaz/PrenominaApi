@@ -419,7 +419,7 @@ namespace PrenominaApi.Services.Prenomina
                 var tenantName = "";
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)
                 {
-                    tenantName = _centerRepository.GetByFilter(c => c.Company == company!.Id).FirstOrDefault(c => int.Parse(c.Id.Trim()) == int.Parse(downloadWorked.Tenant!))?.DepartmentName ?? "";
+                    tenantName = _centerRepository.GetByFilter(c => c.Company == company!.Id).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Id) && int.TryParse(c.Id.Trim(), out var cId) && cId == int.Parse(downloadWorked.Tenant!))?.DepartmentName ?? "";
                 }
                 else
                 {
@@ -487,7 +487,7 @@ namespace PrenominaApi.Services.Prenomina
                 var tenantName = "";
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)
                 {
-                    tenantName = _centerRepository.GetByFilter(c => c.Company == company!.Id).FirstOrDefault(c => int.Parse(c.Id.Trim()) == int.Parse(downloadWorked.Tenant!))?.DepartmentName ?? "";
+                    tenantName = _centerRepository.GetByFilter(c => c.Company == company!.Id).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Id) && int.TryParse(c.Id.Trim(), out var cId) && cId == int.Parse(downloadWorked.Tenant!))?.DepartmentName ?? "";
                 }
                 else
                 {
