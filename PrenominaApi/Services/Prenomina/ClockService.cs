@@ -754,7 +754,9 @@ namespace PrenominaApi.Services.Prenomina
     
         private List<EmployeeCheckIns> BuildCheckInsLogic(List<ClockAttendance> logs, List<(decimal Codigo, decimal Company)> employees)
         {
-            var employeeMap = employees.ToDictionary(e => e.Codigo.ToString(), e => e.Company);
+            var employeeMap = employees.Where(e => e.Active == 'S')
+                .GroupBy(e => e.Codigo.ToString())
+                .ToDictionary(g => g.Key, g => g.First().Company);
 
             var orderedLogs = logs.Where(l => employeeMap.ContainsKey(l.EnrollNumber))
                 .OrderBy(l => l.EnrollNumber)
