@@ -400,9 +400,12 @@ namespace PrenominaApi.Services.Prenomina
                     .ToHashSet();
 
                 // Obtener centros y supervisores en queries separadas
+                var parsedDepartmentCodes = allDepartmentCodes.Select(x => int.Parse(x)).ToHashSet();
                 var centers = _centerRepository.GetContextEntity()
                     .AsNoTracking()
-                    .Where(c => allDepartmentCodes.Select(x => int.Parse(x)).Contains(int.Parse(c.Id.Trim())) && companyIds.Contains((int)c.Company))
+                    .Where(c => companyIds.Contains((int)c.Company))
+                    .ToList()
+                    .Where(c => parsedDepartmentCodes.Contains(int.Parse(c.Id.Trim())))
                     .ToList();
 
                 var supervisors = _supervisorRespository.GetContextEntity()
