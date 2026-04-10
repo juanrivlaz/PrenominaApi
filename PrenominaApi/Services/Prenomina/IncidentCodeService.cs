@@ -60,7 +60,8 @@ namespace PrenominaApi.Services.Prenomina
                 Notes = incidentCode.Notes,
                 RequiredApproval = incidentCode.RequiredApproval,
                 WithOperation = incidentCode.WithOperation,
-                RestrictedWithRoles = incidentCode.RestrictedWithRoles
+                RestrictedWithRoles = incidentCode.RestrictedWithRoles,
+                AvailableForTimeOff = incidentCode.AvailableForTimeOff
             };
 
             if (incidentCode.WithOperation && incidentCode.Metadata is not null)
@@ -137,6 +138,7 @@ namespace PrenominaApi.Services.Prenomina
                 incident.RequiredApproval = incidentCode.RequiredApproval;
                 incident.WithOperation = incidentCode.WithOperation;
                 incident.RestrictedWithRoles = incidentCode.RestrictedWithRoles;
+                incident.AvailableForTimeOff = incidentCode.AvailableForTimeOff;
 
                 var incidentMetadata = _incidentCodeMetadataRepo.GetById(incident.MetadataId!);
 
