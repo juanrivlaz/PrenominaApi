@@ -78,19 +78,6 @@ namespace PrenominaApi.Controllers
             );
         }
 
-        [HttpGet("additional-incidents")]
-        public ActionResult<IEnumerable<AdditionalIncidentOutput>> GetAdditionalIncidents([FromQuery] GetAdditionalIncidents filter)
-        {
-            var company = HttpContext.Items["companySelected"]?.ToString() ?? "";
-            var tenant = HttpContext.Items["tenantSelected"]?.ToString() ?? "";
-            filter.Company = Convert.ToDecimal(company);
-            filter.Tenant = tenant;
-
-            var result = _service.ExecuteProcess<GetAdditionalIncidents, IEnumerable<AdditionalIncidentOutput>>(filter);
-
-            return Ok(result);
-        }
-
         [HttpGet("additional-pay")]
         public ActionResult<IEnumerable<AdditionalPay>> GetAdditionalPay([FromQuery] GetAdditionalPay additionalPay)
         {
