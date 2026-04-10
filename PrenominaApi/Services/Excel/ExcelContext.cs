@@ -10,5 +10,6 @@ namespace PrenominaApi.Services.Excel
         public IEnumerable<ReportHoursWorkedOutput>? reportHoursWorkeds { get; set; }
         public IEnumerable<ReportAttendanceOutput>? reportAttendances { get; set; }
         public IEnumerable<ReportIncidencesOutput>? reportIncidence { get; set; }
+        public IEnumerable<ReportAbandonmentOutput>? reportAbandonment { get; set; }
     }
 }

@@ -6,6 +6,7 @@
         ReportHoursWorked,
         ReportDelays,
         ReportAttendace,
-        ReportIncidence
+        ReportIncidence,
+        ReportAbandonment
     }
 }

@@ -671,5 +671,182 @@ namespace PrenominaApi.Services.Prenomina
                 };
             });
         }
+
+        public IEnumerable<ReportAbandonmentOutput> ExecuteProcess(GetReportAbandonment getReport)
+        {
+            DateOnly StartDate = DateOnly.FromDateTime(DateTime.Now);
+            DateOnly ClosingDate = DateOnly.FromDateTime(DateTime.Now);
+
+            var year = _globalPropertyService.YearOfOperation;
+            var lowerSearch = getReport.Search?.ToLower();
+
+            if (getReport.FilterDates != null)
+            {
+                StartDate = DateOnly.FromDateTime(getReport.FilterDates.Start);
+                ClosingDate = DateOnly.FromDateTime(getReport.FilterDates.End);
+            }
+            else
+            {
+                var periodDates = _periodRepository.GetByFilter(
+                    (period) => period.TypePayroll == getReport.TypeNomina &&
+                    period.Company == getReport.Company &&
+                    period.NumPeriod == getReport.NumPeriod &&
+                    period.Year == year).FirstOrDefault();
+
+                if (periodDates is null)
+                {
+                    throw new BadHttpRequestException("El periodo seleccionado no es válido.");
+                }
+
+                StartDate = periodDates.StartDate;
+                ClosingDate = periodDates.ClosingDate;
+            }
+
+            var employees = _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k =>
+                    k.Company == getReport.Company &&
+                    k.TypeNom == getReport.TypeNomina &&
+                    (
+                        getReport.Tenant == "-999" ||
+                        (_globalPropertyService.TypeTenant == TypeTenant.Department ?
+                            k.Center == getReport.Tenant :
+                            k.Supervisor == Convert.ToDecimal(getReport.Tenant)
+                        )
+                    ) &&
+                    (
+                        string.IsNullOrEmpty(lowerSearch) ||
+                        k.Codigo.ToString().Contains(lowerSearch) ||
+                        (
+                            k.Employee.Name + " " +
+                            k.Employee.LastName + " " +
+                            k.Employee.MLastName
+                        ).ToLower().Contains(lowerSearch)
+                    )
+                ).Select(k => new
+                {
+                    k.Codigo,
+                    FullName = $"{k.Employee.Name} {k.Employee.LastName} {k.Employee.MLastName}",
+                    Department = k.CenterItem != null ? k.CenterItem.DepartmentName : string.Empty,
+                    JobPosition = k.Tabulator.Activity
+                }).ToList();
+
+            if (!employees.Any())
+            {
+                return Enumerable.Empty<ReportAbandonmentOutput>();
+            }
+
+            var employeeDict = employees.ToDictionary(e => e.Codigo);
+            var employeeCodesJson = JsonSerializer.Serialize(employeeDict.Keys);
+
+            // Obtener días con checadas por empleado en el periodo
+            var checkInDates = _repository.GetDbContext().Database.SqlQueryRaw<AbandonmentCheckDateRow>(
+                """
+                SELECT DISTINCT
+                    eci.employee_code AS EmployeeCode,
+                    eci.[date] AS [Date]
+                FROM employee_check_ins AS eci
+                WHERE
+                    eci.[date] BETWEEN @startDate AND @closingDate
+                    AND eci.employee_code IN (
+                        SELECT value FROM OPENJSON(@codes)
+                    )
+                ORDER BY eci.employee_code, eci.[date]
+                """,
+                new SqlParameter("@codes", employeeCodesJson),
+                new SqlParameter("@startDate", StartDate),
+                new SqlParameter("@closingDate", ClosingDate)
+            ).ToList();
+
+            // Obtener días con incidencias por empleado en el periodo
+            var incidentDates = _assistanceIncidentRepository.GetContextEntity().AsNoTracking()
+                .Where(ai =>
+                    ai.CompanyId == getReport.Company &&
+                    ai.Date >= StartDate &&
+                    ai.Date <= ClosingDate &&
+                    employees.Select(e => e.Codigo).Contains(ai.EmployeeCode)
+                )
+                .Select(ai => new { ai.EmployeeCode, ai.Date })
+                .Distinct()
+                .ToList();
+
+            var checkInByEmployee = checkInDates
+                .GroupBy(c => c.EmployeeCode)
+                .ToDictionary(g => g.Key, g => new HashSet<DateOnly>(g.Select(x => x.Date)));
+
+            var incidentsByEmployee = incidentDates
+                .GroupBy(i => i.EmployeeCode)
+                .ToDictionary(g => g.Key, g => new HashSet<DateOnly>(g.Select(x => x.Date)));
+
+            // Generar todos los días del periodo (excluyendo domingos)
+            var allDays = new List<DateOnly>();
+            for (var d = StartDate; d <= ClosingDate; d = d.AddDays(1))
+            {
+                if (d.DayOfWeek != DayOfWeek.Sunday)
+                {
+                    allDays.Add(d);
+                }
+            }
+
+            var result = new List<ReportAbandonmentOutput>();
+
+            foreach (var emp in employees)
+            {
+                var empCheckDates = checkInByEmployee.GetValueOrDefault(emp.Codigo);
+                var empIncidentDates = incidentsByEmployee.GetValueOrDefault(emp.Codigo);
+
+                int consecutiveCount = 0;
+                DateOnly streakStart = default;
+
+                foreach (var day in allDays)
+                {
+                    bool hasCheckIn = empCheckDates != null && empCheckDates.Contains(day);
+                    bool hasIncident = empIncidentDates != null && empIncidentDates.Contains(day);
+
+                    if (!hasCheckIn && !hasIncident)
+                    {
+                        if (consecutiveCount == 0)
+                        {
+                            streakStart = day;
+                        }
+                        consecutiveCount++;
+                    }
+                    else
+                    {
+                        if (consecutiveCount > 2)
+                        {
+                            result.Add(new ReportAbandonmentOutput
+                            {
+                                Code = (int)emp.Codigo,
+                                FullName = emp.FullName,
+                                Department = emp.Department ?? string.Empty,
+                                JobPosition = emp.JobPosition ?? string.Empty,
+                                ConsecutiveDays = consecutiveCount,
+                                StartDate = streakStart,
+                                EndDate = streakStart.AddDays(consecutiveCount - 1)
+                            });
+                        }
+                        consecutiveCount = 0;
+                    }
+                }
+
+                // Verificar racha al final del periodo
+                if (consecutiveCount > 2)
+                {
+                    result.Add(new ReportAbandonmentOutput
+                    {
+                        Code = (int)emp.Codigo,
+                        FullName = emp.FullName,
+                        Department = emp.Department ?? string.Empty,
+                        JobPosition = emp.JobPosition ?? string.Empty,
+                        ConsecutiveDays = consecutiveCount,
+                        StartDate = streakStart,
+                        EndDate = streakStart.AddDays(consecutiveCount - 1)
+                    });
+                }
+            }
+
+            return result.OrderByDescending(r => r.ConsecutiveDays).ThenBy(r => r.Code);
+        }
     }
 }
+

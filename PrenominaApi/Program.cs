@@ -151,6 +151,7 @@ builder.Services.AddScoped<IExcelGenerator, ReportHoursWorkedExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportOvertimeExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportAttendanceExcelGenerator>();
 builder.Services.AddScoped<IExcelGenerator, ReportIncidenceExcelGenerator>();
+builder.Services.AddScoped<IExcelGenerator, ReportAbandonmentExcelGenerator>();
 builder.Services.AddScoped<IExcelGeneratorFactory, ExcelGeneratorFactory>();
 builder.Services.AddScoped<ExcelReportService>();
 

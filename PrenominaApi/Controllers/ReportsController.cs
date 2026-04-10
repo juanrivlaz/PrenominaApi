@@ -156,5 +156,30 @@ namespace PrenominaApi.Controllers
                 fileDownloadName: excel.FileName
             );
         }
+
+        [HttpGet("abandonment")]
+        public ActionResult<IEnumerable<ReportAbandonmentOutput>> GetReportAbandonment([FromQuery] GetReportAbandonment getReport)
+        {
+            var result = _service.ExecuteProcess<GetReportAbandonment, IEnumerable<ReportAbandonmentOutput>>(getReport);
+            return Ok(result);
+        }
+
+        [HttpGet("abandonment/download-excel")]
+        public IActionResult DownloadExcelReportAbandonment([FromQuery] GetReportAbandonment getReport)
+        {
+            var result = _service.ExecuteProcess<GetReportAbandonment, IEnumerable<ReportAbandonmentOutput>>(getReport);
+            var excel = _excelReportService.Generate(
+                ExcelReportType.ReportAbandonment,
+                new ExcelContext { reportAbandonment = result }
+            );
+
+            var contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            return this.File(
+                fileContents: excel.Content,
+                contentType,
+                fileDownloadName: excel.FileName
+            );
+        }
     }
 }
