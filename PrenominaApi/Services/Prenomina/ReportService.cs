@@ -791,8 +791,9 @@ namespace PrenominaApi.Services.Prenomina
 
             foreach (var emp in employees)
             {
-                var empCheckDates = checkInByEmployee.GetValueOrDefault(emp.Codigo);
-                var empIncidentDates = incidentsByEmployee.GetValueOrDefault(emp.Codigo);
+                var employeeCode = (int)emp.Codigo;
+                checkInByEmployee.TryGetValue(employeeCode, out var empCheckDates);
+                incidentsByEmployee.TryGetValue(employeeCode, out var empIncidentDates);
 
                 int consecutiveCount = 0;
                 DateOnly streakStart = default;
