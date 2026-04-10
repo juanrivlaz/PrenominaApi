@@ -235,7 +235,7 @@ namespace PrenominaApi.Controllers
         }
 
         [HttpPost("reject")]
-        public ActionResult<AssistanceIncident> RejectDayOff([FromBody] RejectDayOff rejectDayOff)
+        public ActionResult<List<AssistanceIncident>> RejectDayOff([FromBody] RejectDayOff rejectDayOff)
         {
             string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
             string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
@@ -253,7 +253,7 @@ namespace PrenominaApi.Controllers
             rejectDayOff.CompanyId = companyId;
             rejectDayOff.UserId = userId;
 
-            var result = _service.ExecuteProcess<RejectDayOff, AssistanceIncident>(rejectDayOff);
+            var result = _service.ExecuteProcess<RejectDayOff, List<AssistanceIncident>>(rejectDayOff);
 
             return Ok(result);
         }

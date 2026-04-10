@@ -609,6 +609,8 @@ namespace PrenominaApi.Services.Prenomina
                 _employeeAbsenRequestService.ExecuteProcess<RegisterDaysOff, bool>(registerDaysOff);
             }
 
+            var requestGroupId = registerDaysOff.Dates.Count > 1 ? Guid.NewGuid() : (Guid?)null;
+
             foreach (var date in registerDaysOff.Dates)
             {
                 var existIncident = _assistanceIncident.GetByFilter(i => i.CompanyId == registerDaysOff.CompanyId && i.EmployeeCode == employeeId && i.Date == date).FirstOrDefault();
@@ -618,6 +620,11 @@ namespace PrenominaApi.Services.Prenomina
                     existIncident.IncidentCode = registerDaysOff.IncidentCode;
                     existIncident.UpdatedAt = DateTime.UtcNow;
                     existIncident.TimeOffRequest = true;
+                    existIncident.RequestGroupId = requestGroupId;
+                    existIncident.Rejected = false;
+                    existIncident.RejectionComment = null;
+                    existIncident.RejectedAt = null;
+                    existIncident.RejectedByUserId = null;
 
                     if (existIncident.IncidentCode != registerDaysOff.IncidentCode)
                     {
@@ -641,6 +648,7 @@ namespace PrenominaApi.Services.Prenomina
                         IncidentCode = registerDaysOff.IncidentCode,
                         TimeOffRequest = true,
                         Approved = !findIncidentCode.RequiredApproval,
+                        RequestGroupId = requestGroupId,
                         ByUserId = Guid.Parse(registerDaysOff.UserId!)
                     });
 
@@ -679,7 +687,7 @@ namespace PrenominaApi.Services.Prenomina
             };
         }
 
-        public AssistanceIncident ExecuteProcess(RejectDayOff rejectDayOff)
+        public List<AssistanceIncident> ExecuteProcess(RejectDayOff rejectDayOff)
         {
             var incident = _assistanceIncident.GetByFilter(i =>
                 i.CompanyId == rejectDayOff.CompanyId &&
@@ -692,29 +700,49 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("No se encontró el permiso para la fecha indicada.");
             }
 
-            incident.Rejected = true;
-            incident.Approved = false;
-            incident.RejectionComment = rejectDayOff.Comment;
-            incident.RejectedByUserId = Guid.Parse(rejectDayOff.UserId ?? Guid.Empty.ToString());
-            incident.RejectedAt = DateTime.UtcNow;
-            incident.UpdatedAt = DateTime.UtcNow;
+            var incidentsToReject = new List<AssistanceIncident>();
 
-            _assistanceIncident.Update(incident);
-
-            _auditLogRepository.Create(new AuditLog()
+            if (incident.RequestGroupId != null)
             {
-                SectionCode = SectionCode.DayOff,
-                RecordId = incident.Id.ToString(),
-                Description = $"Se rechazó el permiso del empleado {incident.EmployeeCode} de la empresa {incident.CompanyId} el día {incident.Date}. Motivo: {rejectDayOff.Comment ?? "Sin comentario"}",
-                OldValue = "Pendiente/Aprobado",
-                NewValue = "Rechazado",
-                ByUserId = Guid.Parse(rejectDayOff.UserId ?? Guid.Empty.ToString()),
-            });
+                incidentsToReject = _assistanceIncident.GetByFilter(i =>
+                    i.RequestGroupId == incident.RequestGroupId &&
+                    i.CompanyId == rejectDayOff.CompanyId
+                ).ToList();
+            }
+            else
+            {
+                incidentsToReject.Add(incident);
+            }
+
+            var userId = Guid.Parse(rejectDayOff.UserId ?? Guid.Empty.ToString());
+            var now = DateTime.UtcNow;
+
+            foreach (var item in incidentsToReject)
+            {
+                item.Rejected = true;
+                item.Approved = false;
+                item.RejectionComment = rejectDayOff.Comment;
+                item.RejectedByUserId = userId;
+                item.RejectedAt = now;
+                item.UpdatedAt = now;
+
+                _assistanceIncident.Update(item);
+
+                _auditLogRepository.Create(new AuditLog()
+                {
+                    SectionCode = SectionCode.DayOff,
+                    RecordId = item.Id.ToString(),
+                    Description = $"Se rechazó el permiso del empleado {item.EmployeeCode} de la empresa {item.CompanyId} el día {item.Date}. Motivo: {rejectDayOff.Comment ?? "Sin comentario"}",
+                    OldValue = "Pendiente/Aprobado",
+                    NewValue = "Rechazado",
+                    ByUserId = userId,
+                });
+            }
 
             _assistanceIncident.Save();
             _auditLogRepository.Save();
 
-            return incident;
+            return incidentsToReject;
         }
 
         public SyncIncapacityOutput ExecuteProcess(SyncIncapacity syncIncapacity)

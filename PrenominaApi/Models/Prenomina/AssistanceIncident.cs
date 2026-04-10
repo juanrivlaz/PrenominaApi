@@ -35,6 +35,8 @@ namespace PrenominaApi.Models.Prenomina
         public Guid? RejectedByUserId { get; set; }
         [Column("rejected_at")]
         public DateTime? RejectedAt { get; set; }
+        [Column("request_group_id")]
+        public Guid? RequestGroupId { get; set; }
         [Column("by_user_id")]
         public required Guid ByUserId { get; set; }
         [Column("meta_incident_code")]
