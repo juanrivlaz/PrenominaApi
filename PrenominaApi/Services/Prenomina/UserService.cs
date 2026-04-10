@@ -143,6 +143,7 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             _repository.Save();
+            _cacheService.RemoveByPrefix("user_");
 
             return created;
         }
@@ -249,6 +250,8 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             _repository.Save();
+            _cacheService.RemoveByPrefix("user_");
+            _cacheService.RemoveByPrefix("role_");
 
             return updated;
         }

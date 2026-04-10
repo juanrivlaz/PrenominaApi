@@ -10,9 +10,14 @@ namespace PrenominaApi.Services.Prenomina
 {
     public class SystemConfigService : ServicePrenomina<SystemConfig>
     {
+        private readonly ICacheService _cacheService;
         //private static IZKEM? zkemkeeper;
-        public SystemConfigService(IBaseRepositoryPrenomina<SystemConfig> baseRepository) : base(baseRepository)
+        public SystemConfigService(
+            IBaseRepositoryPrenomina<SystemConfig> baseRepository,
+            ICacheService cacheService
+        ) : base(baseRepository)
         {
+            _cacheService = cacheService;
             /*zkemkeeper = (IZKEM?)Activator.CreateInstance(Type.GetTypeFromProgID("zkemkeeper.ZKEM"), true);
 
             if (zkemkeeper != null) {
@@ -125,6 +130,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(setting);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
             }
 
             return true;
@@ -142,6 +148,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(setting);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
             }
 
             return true;
@@ -159,6 +166,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(setting);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
             }
 
             return true;
@@ -190,6 +198,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(findObject);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
             }
 
             return true;
@@ -210,6 +219,7 @@ namespace PrenominaApi.Services.Prenomina
                     findObject.Data = JsonConvert.SerializeObject(parser);
                     _repository.Update(findObject);
                     _repository.Save();
+                    _cacheService.Remove(CacheKeys.SystemConfig);
                 }
             }
 
@@ -243,6 +253,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(findObject);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
             }
 
             return true;
@@ -272,6 +283,8 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(findObject);
                 _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
+                _cacheService.Remove(CacheKeys.YearOperation);
             }
 
             return true;

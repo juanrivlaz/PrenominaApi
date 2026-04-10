@@ -12,13 +12,16 @@ namespace PrenominaApi.Services.Prenomina
     {
         private readonly IBaseRepository<Payroll> _payrollRepository;
         private readonly IBaseRepositoryPrenomina<PeriodStatus> _periodStatusRepo;
+        private readonly ICacheService _cacheService;
         public PeriodService(
             IBaseRepositoryPrenomina<Models.Prenomina.Period> baseRepository,
             IBaseRepository<Payroll> payrollRepository,
-            IBaseRepositoryPrenomina<PeriodStatus> periodStatusRepo
+            IBaseRepositoryPrenomina<PeriodStatus> periodStatusRepo,
+            ICacheService cacheService
         ): base(baseRepository) {
             _payrollRepository = payrollRepository;
             _periodStatusRepo = periodStatusRepo;
+            _cacheService = cacheService;
         }
 
         public IEnumerable<Payroll> ExecuteProcess(int companyId)
@@ -99,6 +102,7 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             _repository.Save();
+            _cacheService.RemoveByPrefix("periods_");
 
             return result;
         }
@@ -238,6 +242,7 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             _periodStatusRepo.Save();
+            _cacheService.Remove(CacheKeys.PeriodStatus);
 
             var newlist = _periodStatusRepo.GetAll();
 
@@ -284,6 +289,7 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             _repository.Save();
+            _cacheService.RemoveByPrefix("periods_");
 
             return true;
         }

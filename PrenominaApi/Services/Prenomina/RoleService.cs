@@ -11,15 +11,18 @@ namespace PrenominaApi.Services.Prenomina
     {
         private readonly IBaseRepositoryPrenomina<Section> _sectionRepository;
         private readonly IBaseRepositoryPrenomina<SectionRol> _sectionRoleRepository;
+        private readonly ICacheService _cacheService;
 
         public RoleService(
             IBaseRepositoryPrenomina<Role> baseRepository,
             IBaseRepositoryPrenomina<Section> sectionRepository,
-            IBaseRepositoryPrenomina<SectionRol> sectionRoleRepository
+            IBaseRepositoryPrenomina<SectionRol> sectionRoleRepository,
+            ICacheService cacheService
         ) : base(baseRepository)
         {
             _sectionRepository = sectionRepository;
             _sectionRoleRepository = sectionRoleRepository;
+            _cacheService = cacheService;
         }
         
         public override IEnumerable<Role> GetAll()
@@ -94,6 +97,7 @@ namespace PrenominaApi.Services.Prenomina
             }).ToList();
 
             _repository.Save();
+            _cacheService.Remove(CacheKeys.Roles);
 
             return result;
         }
@@ -190,6 +194,8 @@ namespace PrenominaApi.Services.Prenomina
                 _repository.GetDbContext().SaveChanges();
 
                 transaction.Commit();
+                _cacheService.Remove(CacheKeys.Roles);
+                _cacheService.RemoveByPrefix("role_");
 
                 return existRole;
 

@@ -11,18 +11,21 @@ namespace PrenominaApi.Services.Prenomina
         public readonly IBaseRepositoryPrenomina<IncidentCodeMetadata> _incidentCodeMetadataRepo;
         public readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepo;
         public readonly IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> _incidentCodeAllowedRolesRepo;
+        private readonly ICacheService _cacheService;
 
         public IncidentCodeService(
             IBaseRepositoryPrenomina<IncidentCode> baseRepository,
             IBaseRepositoryPrenomina<User> userRepository,
             IBaseRepositoryPrenomina<IncidentCodeMetadata> incidentCodeMetadataRepo,
             IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepo,
-            IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> incidentCodeAllowedRolesRepo
+            IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> incidentCodeAllowedRolesRepo,
+            ICacheService cacheService
         ) : base(baseRepository) {
             _userRepository = userRepository;
             _incidentCodeMetadataRepo = incidentCodeMetadataRepo;
             _incidentApproverRepo = incidentApproverRepo;
             _incidentCodeAllowedRolesRepo = incidentCodeAllowedRolesRepo;
+            _cacheService = cacheService;
         }
 
         public IEnumerable<IncidentCode> ExecuteProcess(GetAllIncidentCode filter)
@@ -98,6 +101,7 @@ namespace PrenominaApi.Services.Prenomina
 
             var result = _repository.Create(newIncidentCode);
             _repository.Save();
+            _cacheService.Remove(CacheKeys.IncidentCodes);
 
             return result;
         }
@@ -242,6 +246,7 @@ namespace PrenominaApi.Services.Prenomina
                 }
 
                 transaction.Commit();
+                _cacheService.Remove(CacheKeys.IncidentCodes);
 
                 return incident;
             }
