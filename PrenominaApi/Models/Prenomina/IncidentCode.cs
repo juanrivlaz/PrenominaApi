@@ -28,6 +28,8 @@ namespace PrenominaApi.Models.Prenomina
         public IncidentCodeApplyMode ApplyMode { get; set; }
         [Column("restricted_with_roles")]
         public bool RestrictedWithRoles { get; set; } = false;
+        [Column("available_for_time_off")]
+        public bool AvailableForTimeOff { get; set; } = false;
         [Column("metadata_id")]
         public Guid? MetadataId { get; set; }
         [Column("created_at")]
