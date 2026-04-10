@@ -435,7 +435,8 @@ namespace PrenominaApi.Services
                     Operator = operatorSymbol,
                     OperatorText = operatorText,
                     OperationValue = operationValue,
-                    Total = total
+                    Total = total,
+                    Notes = incident.Notes
                 };
             }).Where(x => x != null).Cast<AdditionalPay>();
         }

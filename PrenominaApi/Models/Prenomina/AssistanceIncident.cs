@@ -39,6 +39,8 @@ namespace PrenominaApi.Models.Prenomina
         public Guid? RequestGroupId { get; set; }
         [Column("by_user_id")]
         public required Guid ByUserId { get; set; }
+        [Column("notes")]
+        public string? Notes { get; set; }
         [Column("meta_incident_code")]
         public string? MetaIncidentCodeJson { get; set; }
         [Column("created_at")]

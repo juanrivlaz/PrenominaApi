@@ -216,6 +216,7 @@ namespace PrenominaApi.Services.Prenomina
                         IncidentCode = applyIncident.IncidentCode,
                         TimeOffRequest = false,
                         Approved = !findIncidentCode.RequiredApproval,
+                        Notes = applyIncident.Notes,
                         ByUserId = Guid.Parse(applyIncident.UserId!),
                         MetaIncidentCodeJson = metaIncidentCode == null ? null : JsonConvert.SerializeObject(metaIncidentCode)
                     });

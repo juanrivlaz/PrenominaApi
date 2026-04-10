@@ -14,5 +14,6 @@
         public required string OperatorText { get; set; }
         public required decimal OperationValue { get; set; }
         public required decimal Total { get; set; }
+        public string? Notes { get; set; }
     }
 }
