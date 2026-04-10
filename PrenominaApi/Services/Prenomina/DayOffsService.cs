@@ -609,7 +609,7 @@ namespace PrenominaApi.Services.Prenomina
                 _employeeAbsenRequestService.ExecuteProcess<RegisterDaysOff, bool>(registerDaysOff);
             }
 
-            var requestGroupId = registerDaysOff.Dates.Count > 1 ? Guid.NewGuid() : (Guid?)null;
+            var requestGroupId = registerDaysOff.Dates.Count() > 1 ? Guid.NewGuid() : (Guid?)null;
 
             foreach (var date in registerDaysOff.Dates)
             {
