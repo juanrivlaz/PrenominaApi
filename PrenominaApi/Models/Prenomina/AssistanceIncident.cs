@@ -27,6 +27,14 @@ namespace PrenominaApi.Models.Prenomina
         public bool TimeOffRequest { get; set; }
         [Column("approved")]
         public bool Approved { get; set; }
+        [Column("rejected")]
+        public bool Rejected { get; set; }
+        [Column("rejection_comment")]
+        public string? RejectionComment { get; set; }
+        [Column("rejected_by_user_id")]
+        public Guid? RejectedByUserId { get; set; }
+        [Column("rejected_at")]
+        public DateTime? RejectedAt { get; set; }
         [Column("by_user_id")]
         public required Guid ByUserId { get; set; }
         [Column("meta_incident_code")]

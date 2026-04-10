@@ -234,6 +234,30 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPost("reject")]
+        public ActionResult<AssistanceIncident> RejectDayOff([FromBody] RejectDayOff rejectDayOff)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            rejectDayOff.CompanyId = companyId;
+            rejectDayOff.UserId = userId;
+
+            var result = _service.ExecuteProcess<RejectDayOff, AssistanceIncident>(rejectDayOff);
+
+            return Ok(result);
+        }
+
         [HttpPost("sync-incapacity")]
         public ActionResult<SyncIncapacityOutput> SyncIncapacity([FromBody] SyncIncapacity syncIncapacity)
         {

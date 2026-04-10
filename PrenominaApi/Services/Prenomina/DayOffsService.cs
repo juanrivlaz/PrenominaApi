@@ -679,6 +679,44 @@ namespace PrenominaApi.Services.Prenomina
             };
         }
 
+        public AssistanceIncident ExecuteProcess(RejectDayOff rejectDayOff)
+        {
+            var incident = _assistanceIncident.GetByFilter(i =>
+                i.CompanyId == rejectDayOff.CompanyId &&
+                i.EmployeeCode == rejectDayOff.EmployeeCode &&
+                i.Date == rejectDayOff.Date
+            ).FirstOrDefault();
+
+            if (incident == null)
+            {
+                throw new BadHttpRequestException("No se encontró el permiso para la fecha indicada.");
+            }
+
+            incident.Rejected = true;
+            incident.Approved = false;
+            incident.RejectionComment = rejectDayOff.Comment;
+            incident.RejectedByUserId = Guid.Parse(rejectDayOff.UserId ?? Guid.Empty.ToString());
+            incident.RejectedAt = DateTime.UtcNow;
+            incident.UpdatedAt = DateTime.UtcNow;
+
+            _assistanceIncident.Update(incident);
+
+            _auditLogRepository.Create(new AuditLog()
+            {
+                SectionCode = SectionCode.DayOff,
+                RecordId = incident.Id.ToString(),
+                Description = $"Se rechazó el permiso del empleado {incident.EmployeeCode} de la empresa {incident.CompanyId} el día {incident.Date}. Motivo: {rejectDayOff.Comment ?? "Sin comentario"}",
+                OldValue = "Pendiente/Aprobado",
+                NewValue = "Rechazado",
+                ByUserId = Guid.Parse(rejectDayOff.UserId ?? Guid.Empty.ToString()),
+            });
+
+            _assistanceIncident.Save();
+            _auditLogRepository.Save();
+
+            return incident;
+        }
+
         public SyncIncapacityOutput ExecuteProcess(SyncIncapacity syncIncapacity)
         {
             var result = new SyncIncapacityOutput() { 
