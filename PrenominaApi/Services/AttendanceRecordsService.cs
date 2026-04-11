@@ -38,6 +38,7 @@ namespace PrenominaApi.Services
         private readonly AttendancePdfService _attendancePdfService;
         private readonly AdditionalPayPdfService _additionalPayPdfService;
         private readonly ICacheService _cacheService;
+        private readonly EmployeeScheduleResolver _scheduleResolver;
 
         public AttendanceRecordsService(
             IBaseRepository<AttendanceRecords> repository,
@@ -59,7 +60,8 @@ namespace PrenominaApi.Services
             PDFService pdfService,
             AttendancePdfService attendancePdfService,
             AdditionalPayPdfService additionalPayPdfService,
-            ICacheService cacheService
+            ICacheService cacheService,
+            EmployeeScheduleResolver scheduleResolver
         ) : base(repository)
         {
             _employeeService = employeeService;
@@ -81,6 +83,7 @@ namespace PrenominaApi.Services
             _additionalPayPdfService = additionalPayPdfService;
             _sysConfigService = sysConfigService;
             _cacheService = cacheService;
+            _scheduleResolver = scheduleResolver;
         }
 
         public PagedResult<EmployeeAttendancesOutput> ExecuteProcess(GetAttendanceEmployees filter)
@@ -167,12 +170,23 @@ namespace PrenominaApi.Services
             // HashSet de empleados paginados para filtrar checkins
             var paginatedEmployeeCodes = employees.Items.Select(e => e.Codigo).ToHashSet();
 
-            // Obtener checkins optimizado
+            // Pre-cargar horarios asignados para detectar turnos nocturnos
+            var paginatedCodesInt = paginatedEmployeeCodes.Select(c => (int)c).ToList();
+            var schedulesByEmployee = _scheduleResolver.GetSchedulesForEmployees(
+                paginatedCodesInt,
+                filter.Company,
+                periodDates.StartDate,
+                periodDates.ClosingDate);
+
+            // Obtener checkins optimizado.
+            // Ampliamos el rango +1 día para poder traer la salida nocturna que cae el día
+            // siguiente al cierre del periodo.
+            var checkinsRangeEnd = periodDates.ClosingDate.AddDays(1);
             var attendances = _employeeCheckIns.GetContextEntity()
                 .AsNoTracking()
                 .Where(item => item.CheckIn != TimeOnly.MinValue &&
                                item.Date >= periodDates.StartDate &&
-                               item.Date <= periodDates.ClosingDate &&
+                               item.Date <= checkinsRangeEnd &&
                                paginatedEmployeeCodes.Contains(item.EmployeeCode) &&
                                item.CompanyId == filter.Company)
                 .Select(item => new
@@ -199,6 +213,14 @@ namespace PrenominaApi.Services
             var result = employees.Items.Select(employee =>
             {
                 var employeeAttendances = new List<AttendanceOutput>();
+                var employeeCodeInt = (int)employee.Codigo;
+
+                // Horario asignado al empleado (si tiene)
+                schedulesByEmployee.TryGetValue(employeeCodeInt, out var employeeSchedule);
+                var isNightShift = employeeSchedule?.IsNightShift == true;
+
+                // Para evitar que una salida del día siguiente sea consumida dos veces
+                var consumedExitIds = new HashSet<Guid>();
 
                 foreach (var date in allDates)
                 {
@@ -216,8 +238,42 @@ namespace PrenominaApi.Services
                         .Where(ai => !ai.IsAdditional && ai.Approved)
                         .FirstOrDefault();
 
-                    var checkEntry = dayCheckins?.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
-                    var checkOut = dayCheckins?.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
+                    // Filtrar exits ya consumidos por días previos
+                    var availableDayCheckins = dayCheckins?.Where(x => !consumedExitIds.Contains(x.Id)).ToList();
+
+                    var checkEntry = availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
+                    var checkOut = availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
+                    DateOnly? checkOutDate = checkOut != null ? date : (DateOnly?)null;
+
+                    // Si es turno nocturno y no encontramos salida ese mismo día,
+                    // buscar en la madrugada del día siguiente.
+                    if (isNightShift && checkOut == null && checkEntry != null)
+                    {
+                        var nextDate = date.AddDays(1);
+                        var nextKey = ((int)employee.Codigo, nextDate);
+                        if (checkinsLookup.TryGetValue(nextKey, out var nextChecks))
+                        {
+                            // Tope: hora de fin del turno + 4h de gracia (cubre desfases del reloj)
+                            var endTime = employeeSchedule!.EndTime;
+                            var cutoff = endTime.AddHours(4);
+                            // Si el cutoff sobrepasa medianoche (>= endTime), tomamos rangos válidos
+                            // En general endTime es < 12:00 para nocturno, así que cutoff queda en la mañana.
+
+                            var candidate = nextChecks
+                                .Where(x => x.EoS == EntryOrExit.Exit &&
+                                            !consumedExitIds.Contains(x.Id) &&
+                                            x.CheckIn < cutoff)
+                                .OrderBy(x => x.CheckIn)
+                                .FirstOrDefault();
+
+                            if (candidate != null)
+                            {
+                                checkOut = candidate;
+                                checkOutDate = nextDate;
+                                consumedExitIds.Add(candidate.Id);
+                            }
+                        }
+                    }
 
                     employeeAttendances.Add(new AttendanceOutput
                     {
@@ -229,6 +285,8 @@ namespace PrenominaApi.Services
                         CheckEntry = checkEntry?.CheckIn.ToString("HH:mm:ss"),
                         CheckOutId = checkOut?.Id,
                         CheckOut = checkOut?.CheckIn.ToString("HH:mm:ss"),
+                        IsNightShift = isNightShift,
+                        CheckOutDate = checkOutDate,
                         AssistanceIncidents = dayIncidents.Select(ai => new AssistanceIncidentOutput
                         {
                             Id = ai.Id,

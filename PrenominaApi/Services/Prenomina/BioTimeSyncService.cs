@@ -198,6 +198,7 @@ namespace PrenominaApi.Services.Prenomina
                         CompanyId = companyId,
                         Date = dateOnly,
                         CheckIn = checkIn,
+                        SourceCheckIn = checkIn,
                         EoS = EntryOrExit.Entry,
                         NumConc = "",
                         Period = 0,
@@ -217,6 +218,7 @@ namespace PrenominaApi.Services.Prenomina
                         CompanyId = companyId,
                         Date = dateOnly,
                         CheckIn = checkOut,
+                        SourceCheckIn = checkOut,
                         EoS = EntryOrExit.Exit,
                         NumConc = "",
                         Period = 0,
@@ -255,6 +257,7 @@ namespace PrenominaApi.Services.Prenomina
                         CompanyId INT,
                         [Date] DATE,
                         CheckIn TIME,
+                        SourceCheckIn TIME,
                         EoS INT,
                         UpdatedAt DATETIME2
                     )");
@@ -275,7 +278,7 @@ namespace PrenominaApi.Services.Prenomina
                     ON  target.employee_code = source.EmployeeCode
                     AND target.company_id = source.CompanyId
                     AND target.date = source.Date
-                    AND target.check_in = source.CheckIn
+                    AND target.source_check_in = source.SourceCheckIn
 
                     WHEN MATCHED THEN
                         UPDATE SET
@@ -283,8 +286,8 @@ namespace PrenominaApi.Services.Prenomina
                             target.updated_at = source.UpdatedAt
 
                     WHEN NOT MATCHED THEN
-                        INSERT (id, employee_code, company_id, date, check_in, EoS, updated_at, period, type_nom, employee_schedule, created_at)
-                        VALUES (source.id, source.EmployeeCode, source.CompanyId, source.Date, source.CheckIn, source.EoS, source.UpdatedAt, 0, 0, 0, GETDATE());
+                        INSERT (id, employee_code, company_id, date, check_in, source_check_in, EoS, updated_at, period, type_nom, employee_schedule, created_at)
+                        VALUES (source.id, source.EmployeeCode, source.CompanyId, source.Date, source.CheckIn, source.SourceCheckIn, source.EoS, source.UpdatedAt, 0, 0, 0, GETDATE());
 
                     DROP TABLE #TempBioTimeCheckIns;
                 ");
@@ -311,6 +314,7 @@ namespace PrenominaApi.Services.Prenomina
             table.Columns.Add("CompanyId", typeof(int));
             table.Columns.Add("Date", typeof(DateTime));
             table.Columns.Add("CheckIn", typeof(TimeSpan));
+            table.Columns.Add("SourceCheckIn", typeof(TimeSpan));
             table.Columns.Add("EoS", typeof(int));
             table.Columns.Add("UpdatedAt", typeof(DateTime));
 
@@ -322,6 +326,7 @@ namespace PrenominaApi.Services.Prenomina
                     (int)item.CompanyId,
                     item.Date.ToDateTime(TimeOnly.MinValue),
                     item.CheckIn.ToTimeSpan(),
+                    item.SourceCheckIn.ToTimeSpan(),
                     (int)item.EoS,
                     item.UpdatedAt
                 );

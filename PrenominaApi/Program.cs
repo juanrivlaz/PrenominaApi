@@ -160,6 +160,10 @@ builder.Services.AddHttpClient();
 builder.Services.AddDataProtection();
 builder.Services.AddScoped<BioTimeSyncService>();
 
+// Register WorkSchedule services
+builder.Services.AddScoped<WorkScheduleService>();
+builder.Services.AddScoped<EmployeeScheduleResolver>();
+
 // Register Jobs
 builder.Services.AddHostedService<AttendaceJob>();
 builder.Services.AddHostedService<ClockJob>();

@@ -342,6 +342,7 @@ namespace PrenominaApi.Services.Prenomina
                             CompanyId INT,
                             [Date] DATE,
                             CheckIn TIME,
+                            SourceCheckIn TIME,
                             EoS INT,
                             UpdatedAt DATETIME2
                         )");
@@ -362,11 +363,10 @@ namespace PrenominaApi.Services.Prenomina
                         ON  target.employee_code = source.EmployeeCode
                         AND target.company_id = source.CompanyId
                         AND target.date = source.Date
-                        AND target.check_in = source.CheckIn
+                        AND target.source_check_in = source.SourceCheckIn
 
                         WHEN MATCHED THEN
                             UPDATE SET
-                                target.EoS = source.EoS,
                                 target.updated_at = source.UpdatedAt
 
                         WHEN NOT MATCHED THEN
@@ -376,6 +376,7 @@ namespace PrenominaApi.Services.Prenomina
                                 company_id,
                                 date,
                                 check_in,
+                                source_check_in,
                                 EoS,
                                 updated_at,
                                 period,
@@ -389,6 +390,7 @@ namespace PrenominaApi.Services.Prenomina
                                 source.CompanyId,
                                 source.Date,
                                 source.CheckIn,
+                                source.SourceCheckIn,
                                 source.EoS,
                                 source.UpdatedAt,
                                 0,
@@ -398,132 +400,7 @@ namespace PrenominaApi.Services.Prenomina
                             );
                     ");
 
-                    // insert check to db
-                    //await context.clockAttendances.AddRangeAsync(result);
-                    //await context.SaveChangesAsync();
-
-
-                    /*List<string> enrollNumbers = result.Select(x => x.EnrollNumber).Distinct().ToList();
-
-                    if (enrollNumbers.Any())
-                    {
-                        List<DateOnly> dateRange = result.Select(r => new DateOnly(r.Year, r.Month, r.Day)).OrderBy(d => d).ToList();
-                        DateOnly minDate = dateRange.Min().AddDays(-1);
-                        DateOnly maxDate = dateRange.Max();
-
-                        var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains(e.Codigo.ToString()) && e.Active == 'S').Select(e => new
-                        {
-                            e.Codigo,
-                            e.Company
-                        }).ToList();
-                        var existingCheckIns = await context.employeeCheckIns.Where(ci => enrollNumbers.Contains(ci.EmployeeCode.ToString()) && ci.Date >= minDate && ci.Date <= maxDate && ci.DeletedAt == null).ToListAsync();
-                        var checkInsByEmployee = existingCheckIns.GroupBy(ci => ci.EmployeeCode).ToDictionary(g => g.Key, g => g.OrderBy(c => c.Date).ThenBy(c => c.CheckIn).ToList());
-                        var newCheckIns = new List<EmployeeCheckIns>();
-
-                        //SET @tiponom = (SELECT tiponom FROM dbo.Llaves WHERE empresa=@empresa AND codigo=@codigo)
-                        //SET @periodo = (SELECT MAX(periodo) FROM dbo.Periodos WHERE  empresa=@empresa AND tiponom=@tiponom AND @fecha BETWEEN inicio AND cierre)
-
-                        foreach (var log in result)
-                        {
-                            var employWithCompany = listEmployesWithCompany.Where(e => e.Codigo.ToString() == log.EnrollNumber).FirstOrDefault();
-
-                            if (employWithCompany == null)
-                            {
-                                continue;
-                            }
-
-                            var employeeCode = employWithCompany.Codigo;
-                            var companyId = employWithCompany.Company;
-                            var dateTime = new DateTime(log.Year, log.Month, log.Day, log.Hour, log.Minute, log.Second);
-                            var dateOnly = DateOnly.FromDateTime(dateTime);
-                            var timeOnly = TimeOnly.FromDateTime(dateTime);
-
-                            if (!checkInsByEmployee.TryGetValue((int)employeeCode, out var employeeCheckIns))
-                            {
-                                employeeCheckIns = new List<EmployeeCheckIns>();
-                                checkInsByEmployee[(int)employeeCode] = employeeCheckIns;
-                            }
-
-                            var lastCheckIn = employeeCheckIns.Where(c => c.CompanyId == companyId && (c.Date == dateOnly.AddDays(-1) || c.Date == dateOnly)).OrderBy(c => c.Date)
-                                .ThenBy(c => c.CheckIn)
-                                .LastOrDefault();
-
-                            EntryOrExit eos;
-
-                            if (lastCheckIn == null)
-                            {
-                                eos = EntryOrExit.Entry;
-                            } else if (lastCheckIn.Date == dateOnly)
-                            {
-                                eos = EntryOrExit.Exit;
-                            }
-                            else
-                            {
-                                var lastCheckDateTime = lastCheckIn.Date.ToDateTime(lastCheckIn.CheckIn);
-                                var diffHours = (dateTime - lastCheckDateTime).TotalHours;
-
-                                eos = (lastCheckIn.EoS == EntryOrExit.Entry && diffHours <= 13) ? EntryOrExit.Exit : EntryOrExit.Entry;
-                            }
-
-                            var checkIn = new EmployeeCheckIns
-                            {
-                                EmployeeCode = (int)employeeCode,
-                                CompanyId = companyId,
-                                CheckIn = timeOnly,
-                                Date = dateOnly,
-                                NumConc = "",
-                                EoS = eos,
-                                Period = 0,
-                                TypeNom = 0,
-                                EmployeeSchedule = 0,
-                                UpdatedAt = DateTime.UtcNow
-                            };
-
-                            newCheckIns.Add(checkIn);
-                            employeeCheckIns.Add(checkIn);
-
-                            //if (employWithCompany != null)
-                            //{
-                            //    var companyId = employWithCompany.Company;
-                            //    var date = new DateTime(log.Year, log.Month, log.Day, log.Hour, log.Minute, log.Second);
-                            //    var parseDate = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
-                            //    var time = date.ToString("HH:mm:ss.F", CultureInfo.CreateSpecificCulture("hr-HR"));
-                            //    await _employeeRepository.GetDbContext().Database.ExecuteSqlRawAsync("EXEC ObtenRelojDatosEmps @empresa = {0}, @codigo = {1}, @fecha = {2}, @hora = {3}, @comedor = {4}, @row1 = {5}, @row2 = {6}", companyId, log.EnrollNumber, parseDate, time, "N", " ", " ");
-                            //}
-                        }
-
-                        await context.employeeCheckIns.AddRangeAsync(newCheckIns);
-                        await context.clockAttendances.AddRangeAsync(result);
-                        await context.SaveChangesAsync();
-                    }
-                    */
-                    //Clear Data
-                    /*var processClear = new Process
-                    {
-                        StartInfo = new ProcessStartInfo
-                        {
-                            FileName = @"tools/zkbridge/ZKBridgeApp.exe",
-                            Arguments = $"{clock.Ip} {clock.Port ?? 4370} clearcheckins",
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        }
-                    };
-
-                    processClear.Start();
-
-                    string errorClear = await processClear.StandardError.ReadToEndAsync();
-
-                    processClear.WaitForExit();
-
-                    if (!string.IsNullOrEmpty(errorClear))
-                    {
-                        throw new Exception($"Error: {errorClear}");
-                    }*/
-
                     await transaction.CommitAsync();
-
                 }
                 catch (Exception)
                 {
@@ -582,7 +459,8 @@ namespace PrenominaApi.Services.Prenomina
                                 {
                                     EmployeeCode = employeeCode,
                                     Date = date,
-                                    CheckIn = checkin
+                                    CheckIn = checkin,
+                                    SourceCheckIn = checkin
                                 });
                             }
                         }
@@ -619,7 +497,8 @@ namespace PrenominaApi.Services.Prenomina
                                 {
                                     EmployeeCode = employeeCode,
                                     Date = DateOnly.FromDateTime(date),
-                                    CheckIn = checkin
+                                    CheckIn = checkin,
+                                    SourceCheckIn = checkin
                                 });
                             }
                         }
@@ -698,6 +577,7 @@ namespace PrenominaApi.Services.Prenomina
                                 EmployeeCode = (int)employeeCode,
                                 CompanyId = companyId,
                                 CheckIn = timeOnly,
+                                SourceCheckIn = timeOnly,
                                 Date = dateOnly,
                                 NumConc = "",
                                 EoS = eos,
@@ -811,6 +691,7 @@ namespace PrenominaApi.Services.Prenomina
                     CompanyId = companyId,
                     Date = dateOnly,
                     CheckIn = timeOnly,
+                    SourceCheckIn = timeOnly,
                     EoS = eos,
                     NumConc = "",
                     Period = 0,
@@ -834,6 +715,7 @@ namespace PrenominaApi.Services.Prenomina
             table.Columns.Add("CompanyId", typeof(int));
             table.Columns.Add("Date", typeof(DateTime));
             table.Columns.Add("CheckIn", typeof(TimeSpan));
+            table.Columns.Add("SourceCheckIn", typeof(TimeSpan));
             table.Columns.Add("EoS", typeof(int));
             table.Columns.Add("UpdatedAt", typeof(DateTime));
 
@@ -845,6 +727,7 @@ namespace PrenominaApi.Services.Prenomina
                     item.CompanyId,
                     item.Date.ToDateTime(TimeOnly.MinValue),
                     item.CheckIn.ToTimeSpan(),
+                    item.SourceCheckIn.ToTimeSpan(),
                     (int)item.EoS,
                     item.UpdatedAt
                 );

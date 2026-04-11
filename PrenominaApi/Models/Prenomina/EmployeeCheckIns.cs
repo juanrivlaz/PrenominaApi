@@ -19,6 +19,8 @@ namespace PrenominaApi.Models.Prenomina
         public decimal CompanyId {  get; set; }
         [Column("check_in")]
         public TimeOnly CheckIn { get; set; }
+        [Column("source_check_in")]
+        public TimeOnly SourceCheckIn { get; set; }
         [Column("date")]
         public DateOnly Date { get; set; }
         [Column("num_conc")]

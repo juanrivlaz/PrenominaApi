@@ -10,6 +10,8 @@
         public string? CheckEntry { get; set; }
         public Guid? CheckOutId { get; set; }
         public string? CheckOut { get; set; }
+        public bool IsNightShift { get; set; }
+        public DateOnly? CheckOutDate { get; set; }
         public IEnumerable<AssistanceIncidentOutput>? AssistanceIncidents { get; set; }
     }
 }

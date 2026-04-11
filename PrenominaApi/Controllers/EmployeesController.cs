@@ -9,6 +9,7 @@ using PrenominaApi.Models.Dto.Input;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Services;
+using PrenominaApi.Services.Prenomina;
 using System.Linq.Expressions;
 
 namespace PrenominaApi.Controllers
@@ -21,15 +22,18 @@ namespace PrenominaApi.Controllers
         private readonly IBaseService<Employee> _service;
         private readonly GlobalPropertyService _globalPropertyService;
         private readonly PrenominaDbContext _context;
+        private readonly WorkScheduleService _workScheduleService;
 
         public EmployeesController(
             IBaseService<Employee> service,
             GlobalPropertyService globalPropertyService,
-            PrenominaDbContext context)
+            PrenominaDbContext context,
+            WorkScheduleService workScheduleService)
         {
             _service = service;
             _globalPropertyService = globalPropertyService;
             _context = context;
+            _workScheduleService = workScheduleService;
         }
 
         private int GetCompanyId()
@@ -135,6 +139,28 @@ namespace PrenominaApi.Controllers
             var result = _service.ExecuteProcess<FilterEmployeesByPayroll, PagedResult<EmployeeOutput>>(filter);
 
             return Ok(result);
+        }
+
+        [HttpGet("schedule-assignments")]
+        [Authorize]
+        public ActionResult GetScheduleAssignments()
+        {
+            return Ok(_workScheduleService.GetActiveEmployeeAssignments(GetCompanyId()));
+        }
+
+        [HttpPut("{employeeCode}/work-schedule")]
+        [Authorize]
+        public ActionResult<bool> UpdateEmployeeSchedule(int employeeCode, [FromBody] AssignEmployeeWorkScheduleInput input)
+        {
+            var effectiveFrom = input.EffectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            return Ok(_workScheduleService.AssignEmployeeSchedule(employeeCode, GetCompanyId(), input.WorkScheduleId, effectiveFrom));
+        }
+
+        [HttpGet("{employeeCode}/work-schedule/history")]
+        [Authorize]
+        public ActionResult GetEmployeeScheduleHistory(int employeeCode)
+        {
+            return Ok(_workScheduleService.GetEmployeeAssignmentHistory(employeeCode, GetCompanyId()));
         }
     }
 }

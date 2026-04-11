@@ -5,6 +5,7 @@ using PrenominaApi.Data;
 using PrenominaApi.Filters;
 using PrenominaApi.Models.Dto.Input;
 using PrenominaApi.Models.Prenomina;
+using PrenominaApi.Services.Prenomina;
 
 namespace PrenominaApi.Controllers
 {
@@ -14,10 +15,12 @@ namespace PrenominaApi.Controllers
     public class ActivitiesController : ControllerBase
     {
         private readonly PrenominaDbContext _context;
+        private readonly WorkScheduleService _workScheduleService;
 
-        public ActivitiesController(PrenominaDbContext context)
+        public ActivitiesController(PrenominaDbContext context, WorkScheduleService workScheduleService)
         {
             _context = context;
+            _workScheduleService = workScheduleService;
         }
 
         private int GetCompanyId()
@@ -70,6 +73,20 @@ namespace PrenominaApi.Controllers
 
             await _context.SaveChangesAsync();
             return Ok(true);
+        }
+
+        [HttpGet("schedule-configs")]
+        [Authorize]
+        public ActionResult GetScheduleConfigs()
+        {
+            return Ok(_workScheduleService.GetActivityConfigs(GetCompanyId()));
+        }
+
+        [HttpPut("{activityId}/work-schedule")]
+        [Authorize]
+        public ActionResult<bool> UpdateActivitySchedule(int activityId, [FromBody] AssignEmployeeWorkScheduleInput input)
+        {
+            return Ok(_workScheduleService.AssignActivitySchedule(activityId, GetCompanyId(), input.WorkScheduleId));
         }
     }
 }
