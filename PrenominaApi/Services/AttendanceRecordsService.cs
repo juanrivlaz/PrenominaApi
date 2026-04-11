@@ -174,7 +174,7 @@ namespace PrenominaApi.Services
             var paginatedCodesInt = paginatedEmployeeCodes.Select(c => (int)c).ToList();
             var schedulesByEmployee = _scheduleResolver.GetSchedulesForEmployees(
                 paginatedCodesInt,
-                filter.Company,
+                (int)filter.Company,
                 periodDates.StartDate,
                 periodDates.ClosingDate);
 

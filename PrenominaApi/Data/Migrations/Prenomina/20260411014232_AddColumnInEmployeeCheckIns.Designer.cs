@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrenominaApi.Data;
 
@@ -11,9 +12,11 @@ using PrenominaApi.Data;
 namespace PrenominaApi.Data.Migrations.Prenomina
 {
     [DbContext(typeof(PrenominaDbContext))]
-    partial class PrenominaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260411014232_AddColumnInEmployeeCheckIns")]
+    partial class AddColumnInEmployeeCheckIns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

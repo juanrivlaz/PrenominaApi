@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrenominaApi.Data;
 
@@ -11,9 +12,11 @@ using PrenominaApi.Data;
 namespace PrenominaApi.Data.Migrations.Prenomina
 {
     [DbContext(typeof(PrenominaDbContext))]
-    partial class PrenominaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260410040050_AddColumnCommentaryInAdditionalPayment")]
+    partial class AddColumnCommentaryInAdditionalPayment
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -56,44 +59,6 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .IsUnique();
 
                     b.ToTable("activity_overtime_configs");
-                });
-
-            modelBuilder.Entity("PrenominaApi.Models.Prenomina.ActivityWorkScheduleConfig", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ActivityId")
-                        .HasColumnType("int")
-                        .HasColumnName("activity_id");
-
-                    b.Property<int>("CompanyId")
-                        .HasColumnType("int")
-                        .HasColumnName("company_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid>("WorkScheduleId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("work_schedule_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkScheduleId");
-
-                    b.HasIndex("ActivityId", "CompanyId")
-                        .IsUnique();
-
-                    b.ToTable("activity_work_schedule_configs");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.AssistanceIncident", b =>
@@ -722,10 +687,6 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .HasColumnType("int")
                         .HasColumnName("period");
 
-                    b.Property<TimeOnly>("SourceCheckIn")
-                        .HasColumnType("time")
-                        .HasColumnName("source_check_in");
-
                     b.Property<int>("TypeNom")
                         .HasColumnType("int")
                         .HasColumnName("type_nom");
@@ -777,54 +738,6 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .IsUnique();
 
                     b.ToTable("employee_overtime_configs");
-                });
-
-            modelBuilder.Entity("PrenominaApi.Models.Prenomina.EmployeeWorkScheduleAssignment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("id");
-
-                    b.Property<int>("CompanyId")
-                        .HasColumnType("int")
-                        .HasColumnName("company_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("deleted_at");
-
-                    b.Property<DateOnly>("EffectiveFrom")
-                        .HasColumnType("date")
-                        .HasColumnName("effective_from");
-
-                    b.Property<DateOnly?>("EffectiveTo")
-                        .HasColumnType("date")
-                        .HasColumnName("effective_to");
-
-                    b.Property<int>("EmployeeCode")
-                        .HasColumnType("int")
-                        .HasColumnName("employee_code");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid>("WorkScheduleId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("work_schedule_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkScheduleId");
-
-                    b.HasIndex("EmployeeCode", "CompanyId", "EffectiveFrom");
-
-                    b.ToTable("employee_work_schedule_assignment");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.IgnoreIncidentToActivity", b =>
@@ -1832,17 +1745,6 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                     b.ToTable("work_schedule");
                 });
 
-            modelBuilder.Entity("PrenominaApi.Models.Prenomina.ActivityWorkScheduleConfig", b =>
-                {
-                    b.HasOne("PrenominaApi.Models.Prenomina.WorkSchedule", "WorkSchedule")
-                        .WithMany()
-                        .HasForeignKey("WorkScheduleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("WorkSchedule");
-                });
-
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.AssistanceIncident", b =>
                 {
                     b.HasOne("PrenominaApi.Models.Prenomina.User", "User")
@@ -1933,17 +1835,6 @@ namespace PrenominaApi.Data.Migrations.Prenomina
                         .IsRequired();
 
                     b.Navigation("IncidentCodeItem");
-                });
-
-            modelBuilder.Entity("PrenominaApi.Models.Prenomina.EmployeeWorkScheduleAssignment", b =>
-                {
-                    b.HasOne("PrenominaApi.Models.Prenomina.WorkSchedule", "WorkSchedule")
-                        .WithMany()
-                        .HasForeignKey("WorkScheduleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("WorkSchedule");
                 });
 
             modelBuilder.Entity("PrenominaApi.Models.Prenomina.IgnoreIncidentToActivity", b =>
