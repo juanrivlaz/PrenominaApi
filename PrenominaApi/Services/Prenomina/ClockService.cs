@@ -25,16 +25,19 @@ namespace PrenominaApi.Services.Prenomina
         private IBaseRepository<AttendanceRecords> _attendaceRecordRepository;
         private IBaseRepository<Employee> _employeeRepository;
         private IBaseRepositoryPrenomina<ClockAttendance> _clockAttendaceRepository;
+        private readonly EmployeeScheduleResolver _scheduleResolver;
 
         public ClockService(
             IBaseRepository<AttendanceRecords> attendaceRecordRepository,
             IBaseRepository<Employee> employeeRepository,
             IBaseRepositoryPrenomina<ClockAttendance> clockAttendaceRepository,
-            IBaseRepositoryPrenomina<Clock> baseRepository
+            IBaseRepositoryPrenomina<Clock> baseRepository,
+            EmployeeScheduleResolver scheduleResolver
         ) : base(baseRepository) {
             _attendaceRecordRepository = attendaceRecordRepository;
             _employeeRepository = employeeRepository;
             _clockAttendaceRepository = clockAttendaceRepository;
+            _scheduleResolver = scheduleResolver;
         }
 
         public Clock ExecuteProcess(CreateClock createClock)
@@ -354,7 +357,13 @@ namespace PrenominaApi.Services.Prenomina
                         e.Company
                     )).ToList();
 
-                    var newCheckIns = BuildCheckInsLogic(result, listEmployesWithCompany);
+                    var empCodes = listEmployesWithCompany.Select(e => (int)e.Codigo).Distinct().ToList();
+                    var syncCompanyId = (int)listEmployesWithCompany.First().Company;
+                    var dates = result.Select(r => new DateOnly(r.Year, r.Month, r.Day)).ToList();
+                    var syncScheduleMap = _scheduleResolver.GetSchedulesForEmployees(
+                        empCodes, syncCompanyId, dates.Min(), dates.Max());
+
+                    var newCheckIns = BuildCheckInsLogic(result, listEmployesWithCompany, syncScheduleMap);
                     var table = BuildEmployeeCheckInsTable(newCheckIns);
                     await BulkInsertTempAsync(context, table);
                     await context.Database.ExecuteSqlRawAsync(@"
@@ -530,6 +539,11 @@ namespace PrenominaApi.Services.Prenomina
                         var checkInsByEmployee = existingCheckIns.GroupBy(ci => ci.EmployeeCode).ToDictionary(g => g.Key, g => g.OrderBy(c => c.Date).ThenBy(c => c.CheckIn).ToList());
                         var newCheckIns = new List<EmployeeCheckIns>();
 
+                        // Pre-cargar horarios para clasificar correctamente turnos nocturnos
+                        var companyId0 = (int)listEmployesWithCompany.First().Company;
+                        var scheduleMap = _scheduleResolver.GetSchedulesForEmployees(
+                            enrollNumbers, companyId0, minDate, maxDate);
+
                         foreach (var log in listCheckins)
                         {
                             var employWithCompany = listEmployesWithCompany.Where(e => e.Codigo == log.EmployeeCode).FirstOrDefault();
@@ -551,25 +565,34 @@ namespace PrenominaApi.Services.Prenomina
                                 checkInsByEmployee[(int)employeeCode] = employeeCheckIns;
                             }
 
-                            var lastCheckIn = employeeCheckIns.Where(c => c.CompanyId == companyId && (c.Date == dateOnly.AddDays(-1) || c.Date == dateOnly)).OrderBy(c => c.Date)
-                                .ThenBy(c => c.CheckIn)
-                                .LastOrDefault();
-
                             EntryOrExit eos;
 
-                            if (lastCheckIn == null)
+                            // Si el empleado tiene horario asignado, clasificar por horario
+                            if (scheduleMap.TryGetValue((int)employeeCode, out var schedule) && schedule != null)
                             {
-                                eos = EntryOrExit.Entry;
-                            } else if (lastCheckIn.Date == dateOnly)
-                            {
-                                eos = EntryOrExit.Exit;
+                                eos = ClassifyBySchedule(timeOnly, schedule);
                             }
                             else
                             {
-                                var lastCheckDateTime = lastCheckIn.Date.ToDateTime(lastCheckIn.CheckIn);
-                                var diffHours = (dateTime - lastCheckDateTime).TotalHours;
+                                // Fallback: lógica original para empleados sin horario asignado
+                                var lastCheckIn = employeeCheckIns.Where(c => c.CompanyId == companyId && (c.Date == dateOnly.AddDays(-1) || c.Date == dateOnly)).OrderBy(c => c.Date)
+                                    .ThenBy(c => c.CheckIn)
+                                    .LastOrDefault();
 
-                                eos = (lastCheckIn.EoS == EntryOrExit.Entry && diffHours <= 13) ? EntryOrExit.Exit : EntryOrExit.Entry;
+                                if (lastCheckIn == null)
+                                {
+                                    eos = EntryOrExit.Entry;
+                                } else if (lastCheckIn.Date == dateOnly)
+                                {
+                                    eos = EntryOrExit.Exit;
+                                }
+                                else
+                                {
+                                    var lastCheckDateTime = lastCheckIn.Date.ToDateTime(lastCheckIn.CheckIn);
+                                    var diffHours = (dateTime - lastCheckDateTime).TotalHours;
+
+                                    eos = (lastCheckIn.EoS == EntryOrExit.Entry && diffHours <= 13) ? EntryOrExit.Exit : EntryOrExit.Entry;
+                                }
                             }
 
                             var checkIn = new EmployeeCheckIns
@@ -632,7 +655,7 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
     
-        private List<EmployeeCheckIns> BuildCheckInsLogic(List<ClockAttendance> logs, List<(decimal Codigo, decimal Company)> employees)
+        private List<EmployeeCheckIns> BuildCheckInsLogic(List<ClockAttendance> logs, List<(decimal Codigo, decimal Company)> employees, Dictionary<int, WorkSchedule?> scheduleMap)
         {
             var employeeMap = employees
                 .GroupBy(e => e.Codigo.ToString())
@@ -664,24 +687,33 @@ namespace PrenominaApi.Services.Prenomina
                 var key = (employeeCode, companyId);
                 EntryOrExit eos;
 
-                if (!lastCheckMap.TryGetValue(key, out var last))
+                // Si el empleado tiene horario asignado, clasificar por horario
+                if (scheduleMap.TryGetValue((int)employeeCode, out var schedule) && schedule != null)
                 {
-                    eos = EntryOrExit.Entry;
-                } else
+                    eos = ClassifyBySchedule(timeOnly, schedule);
+                }
+                else
                 {
-                    var lastDateTime = last.Date.ToDateTime(last.CheckIn);
-                    var diffHours = (currentDateTime - lastDateTime).TotalHours;
-
-                    if (last.Date == dateOnly)
-                    {
-                        eos = EntryOrExit.Exit;
-                    }
-                    else if (last.EoS == EntryOrExit.Entry && diffHours <= 13)
-                    {
-                        eos = EntryOrExit.Exit;
-                    } else
+                    // Fallback: lógica original para empleados sin horario asignado
+                    if (!lastCheckMap.TryGetValue(key, out var last))
                     {
                         eos = EntryOrExit.Entry;
+                    } else
+                    {
+                        var lastDateTime = last.Date.ToDateTime(last.CheckIn);
+                        var diffHours = (currentDateTime - lastDateTime).TotalHours;
+
+                        if (last.Date == dateOnly)
+                        {
+                            eos = EntryOrExit.Exit;
+                        }
+                        else if (last.EoS == EntryOrExit.Entry && diffHours <= 13)
+                        {
+                            eos = EntryOrExit.Exit;
+                        } else
+                        {
+                            eos = EntryOrExit.Entry;
+                        }
                     }
                 }
 
@@ -707,6 +739,26 @@ namespace PrenominaApi.Services.Prenomina
             return result;
         }
     
+        /// <summary>
+        /// Clasifica una checada como Entry o Exit usando el horario asignado al empleado.
+        /// Para turnos nocturnos: checadas cercanas al end_time (madrugada) → Exit,
+        /// checadas cercanas al start_time (tarde/noche) → Entry.
+        /// </summary>
+        private static EntryOrExit ClassifyBySchedule(TimeOnly checkTime, WorkSchedule schedule)
+        {
+            if (!schedule.IsNightShift)
+            {
+                var midPoint = schedule.StartTime.AddMinutes(
+                    (schedule.EndTime.ToTimeSpan() - schedule.StartTime.ToTimeSpan()).TotalMinutes / 2);
+                return checkTime < midPoint ? EntryOrExit.Entry : EntryOrExit.Exit;
+            }
+
+            // Turno nocturno: end_time es en la madrugada (ej: 06:00), start_time en la tarde/noche (ej: 22:00)
+            // Checadas antes de end_time + 4h de gracia → Exit (salida del turno anterior)
+            var cutoff = schedule.EndTime.AddHours(4);
+            return checkTime < cutoff ? EntryOrExit.Exit : EntryOrExit.Entry;
+        }
+
         private DataTable BuildEmployeeCheckInsTable(List<EmployeeCheckIns> items)
         {
             var table = new DataTable();

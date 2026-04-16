@@ -204,5 +204,24 @@ namespace PrenominaApi.Controllers
 
             return Ok(result);
         }
+
+        [HttpPost("fix-night-shift-eos")]
+        public ActionResult<FixNightShiftEoSResult> FixNightShiftEoS()
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+
+            var result = _assistanceIncidentService.ExecuteProcess<FixNightShiftEoS, FixNightShiftEoSResult>(new FixNightShiftEoS
+            {
+                CompanyId = companyId
+            });
+
+            return Ok(result);
+        }
     }
 }

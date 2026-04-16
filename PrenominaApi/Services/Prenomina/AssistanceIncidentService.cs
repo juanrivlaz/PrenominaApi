@@ -4,6 +4,7 @@ using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
 using PrenominaApi.Models.Dto.Input.Attendance;
+using PrenominaApi.Models.Dto.Output.Attendance;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
@@ -443,6 +444,76 @@ namespace PrenominaApi.Services.Prenomina
 
 
             return true;
+        }
+
+        public FixNightShiftEoSResult ExecuteProcess(FixNightShiftEoS input)
+        {
+            var context = _repository.GetDbContext();
+
+            var nightScheduleAssignments = context.employeeWorkScheduleAssignments
+                .AsNoTracking()
+                .Include(a => a.WorkSchedule)
+                .Where(a => a.CompanyId == input.CompanyId
+                    && a.DeletedAt == null
+                    && a.WorkSchedule != null
+                    && a.WorkSchedule.IsNightShift
+                    && a.WorkSchedule.DeletedAt == null)
+                .ToList();
+
+            if (!nightScheduleAssignments.Any())
+            {
+                return new FixNightShiftEoSResult
+                {
+                    TotalFixed = 0,
+                    Message = "No se encontraron empleados con turno nocturno."
+                };
+            }
+
+            var employeeSchedules = nightScheduleAssignments
+                .GroupBy(a => a.EmployeeCode)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.EffectiveFrom).First());
+
+            var employeeCodes = employeeSchedules.Keys.ToList();
+
+            var checkIns = _employeeCheckInsRepository.GetContextEntity()
+                .Where(ci => employeeCodes.Contains(ci.EmployeeCode)
+                    && ci.CompanyId == input.CompanyId
+                    && ci.DeletedAt == null)
+                .ToList();
+
+            int totalFixed = 0;
+
+            foreach (var ci in checkIns)
+            {
+                if (!employeeSchedules.TryGetValue(ci.EmployeeCode, out var assignment) || assignment.WorkSchedule == null)
+                    continue;
+
+                if (ci.Date < assignment.EffectiveFrom || (assignment.EffectiveTo != null && ci.Date > assignment.EffectiveTo))
+                    continue;
+
+                var schedule = assignment.WorkSchedule;
+                var cutoff = schedule.EndTime.AddHours(4);
+                var correctEoS = ci.CheckIn < cutoff ? EntryOrExit.Exit : EntryOrExit.Entry;
+
+                if (ci.EoS != correctEoS)
+                {
+                    ci.EoS = correctEoS;
+                    ci.UpdatedAt = DateTime.UtcNow;
+                    _employeeCheckInsRepository.Update(ci);
+                    totalFixed++;
+                }
+            }
+
+            if (totalFixed > 0)
+            {
+                _employeeCheckInsRepository.Save();
+            }
+
+            return new FixNightShiftEoSResult
+            {
+                TotalFixed = totalFixed,
+                Message = $"Se corrigieron {totalFixed} checadas de turno nocturno."
+            };
         }
     }
 }
