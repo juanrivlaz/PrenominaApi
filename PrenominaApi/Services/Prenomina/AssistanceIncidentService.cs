@@ -483,6 +483,12 @@ namespace PrenominaApi.Services.Prenomina
 
             int totalFixed = 0;
 
+            // Corregir EoS de cada checada según el horario.
+            // Turno nocturno: checadas antes del StartTime son salida del turno anterior (Exit);
+            // desde StartTime son entrada del turno actual (Entry).
+            // El pareado Entry/Exit que cruzan medianoche lo realiza AttendanceRecordsService
+            // al construir la vista, buscando la Exit del día siguiente cuando el día actual
+            // no tiene Exit posterior al StartTime.
             foreach (var ci in checkIns)
             {
                 if (!employeeSchedules.TryGetValue(ci.EmployeeCode, out var assignment) || assignment.WorkSchedule == null)
@@ -492,8 +498,7 @@ namespace PrenominaApi.Services.Prenomina
                     continue;
 
                 var schedule = assignment.WorkSchedule;
-                var cutoff = schedule.EndTime.AddHours(4);
-                var correctEoS = ci.CheckIn < cutoff ? EntryOrExit.Exit : EntryOrExit.Entry;
+                var correctEoS = ci.CheckIn < schedule.StartTime ? EntryOrExit.Exit : EntryOrExit.Entry;
 
                 if (ci.EoS != correctEoS)
                 {
@@ -512,7 +517,7 @@ namespace PrenominaApi.Services.Prenomina
             return new FixNightShiftEoSResult
             {
                 TotalFixed = totalFixed,
-                Message = $"Se corrigieron {totalFixed} checadas de turno nocturno."
+                Message = $"Se corrigieron {totalFixed} clasificaciones de checadas nocturnas."
             };
         }
     }

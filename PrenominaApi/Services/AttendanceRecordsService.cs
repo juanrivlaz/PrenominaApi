@@ -242,7 +242,14 @@ namespace PrenominaApi.Services
                     var availableDayCheckins = dayCheckins?.Where(x => !consumedExitIds.Contains(x.Id)).ToList();
 
                     var checkEntry = availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Entry).MinBy(x => x.CheckIn);
-                    var checkOut = availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
+
+                    // Para turnos nocturnos, las salidas del mismo día que caen antes del
+                    // inicio del turno pertenecen al turno del día anterior (ej: 00:43 es
+                    // la salida del turno nocturno que empezó ayer). Solo tomamos salidas
+                    // que ocurran desde el inicio del turno actual.
+                    var checkOut = isNightShift && employeeSchedule != null
+                        ? availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Exit && x.CheckIn >= employeeSchedule.StartTime).MaxBy(x => x.CheckIn)
+                        : availableDayCheckins?.Where(x => x.EoS == EntryOrExit.Exit).MaxBy(x => x.CheckIn);
                     DateOnly? checkOutDate = checkOut != null ? date : (DateOnly?)null;
 
                     // Si es turno nocturno y no encontramos salida ese mismo día,

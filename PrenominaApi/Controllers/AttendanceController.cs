@@ -8,6 +8,7 @@ using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Dto.Output.Attendance;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
+using PrenominaApi.Filters;
 using PrenominaApi.Services;
 using PrenominaApi.Services.Prenomina;
 
@@ -15,6 +16,7 @@ namespace PrenominaApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]"), Authorize]
+    [ServiceFilter(typeof(CompanyTenantValidationFilter))]
     public class AttendanceController : ControllerBase
     {
         private readonly IBaseService<AttendanceRecords> _service;
