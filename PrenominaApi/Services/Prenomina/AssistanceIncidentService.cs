@@ -25,6 +25,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepository<Key> _keyRepository;
         private readonly IBaseRepository<Employee> _employeeRepository;
         private readonly GlobalPropertyService _globalPropertyService;
+        private readonly EmployeeScheduleResolver _scheduleResolver;
 
         public AssistanceIncidentService(
             IBaseRepositoryPrenomina<AssistanceIncident> repository,
@@ -37,7 +38,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseServicePrenomina<Models.Prenomina.Period> periodService,
             IBaseRepository<Key> keyRepository,
             IBaseRepository<Employee> employeeRepository,
-            GlobalPropertyService globalPropertyService
+            GlobalPropertyService globalPropertyService,
+            EmployeeScheduleResolver scheduleResolver
         ) : base(repository) {
             _incidentCodeRepository = incidentCodeRepository;
             _auditLogRepository = auditLogRepository;
@@ -50,6 +52,7 @@ namespace PrenominaApi.Services.Prenomina
             _employeeRepository = employeeRepository;
             _globalPropertyService = globalPropertyService;
             _periodService = periodService;
+            _scheduleResolver = scheduleResolver;
         }
 
         public AssistanceIncident ExecuteProcess(ApplyIncident applyIncident)
@@ -396,6 +399,20 @@ namespace PrenominaApi.Services.Prenomina
             }
 
 
+            // Para turnos nocturnos, si la hora de salida es de madrugada (< StartTime),
+            // la salida pertenece al día siguiente (cruza medianoche).
+            var checkOutTime = TimeOnly.Parse(changeAttendance.CheckOut);
+            var exitDate = changeAttendance.Date;
+            var employeeSchedule = _scheduleResolver.GetScheduleForEmployee(
+                (int)changeAttendance.EmployeeCode,
+                (int)changeAttendance.CompanyId,
+                changeAttendance.Date);
+
+            if (employeeSchedule != null && employeeSchedule.IsNightShift && checkOutTime < employeeSchedule.StartTime)
+            {
+                exitDate = changeAttendance.Date.AddDays(1);
+            }
+
             // Cambiar la asistencia de salida
             if (changeAttendance.CheckOutId != null)
             {
@@ -403,7 +420,8 @@ namespace PrenominaApi.Services.Prenomina
                 if (attendanceExit != null)
                 {
                     var oldValue = attendanceExit.CheckIn;
-                    attendanceExit.CheckIn = TimeOnly.Parse(changeAttendance.CheckOut);
+                    attendanceExit.CheckIn = checkOutTime;
+                    attendanceExit.Date = exitDate;
                     attendanceExit.UpdatedAt = DateTime.UtcNow;
                     attendanceExit.EoS = EntryOrExit.Exit;
 
@@ -427,8 +445,8 @@ namespace PrenominaApi.Services.Prenomina
                 {
                     CompanyId = changeAttendance.CompanyId,
                     EmployeeCode = int.Parse(changeAttendance.EmployeeCode.ToString()),
-                    Date = changeAttendance.Date,
-                    CheckIn = TimeOnly.Parse(changeAttendance.CheckOut),
+                    Date = exitDate,
+                    CheckIn = checkOutTime,
                     CreatedAt = DateTime.UtcNow,
                     EmployeeSchedule = 0,
                     EoS = EntryOrExit.Exit,
