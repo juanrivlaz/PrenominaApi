@@ -282,6 +282,21 @@ namespace PrenominaApi.Services
                         }
                     }
 
+                    // Fallback: turno nocturno con salida temprana sin entrada emparejada.
+                    // Aunque no haya entrada ese día, mostramos la salida existente para que
+                    // el usuario vea la anomalía y pueda corregirla manualmente.
+                    if (checkOut == null && checkEntry == null)
+                    {
+                        checkOut = availableDayCheckins?
+                            .Where(x => x.EoS == EntryOrExit.Exit)
+                            .MaxBy(x => x.CheckIn);
+
+                        if (checkOut != null)
+                        {
+                            checkOutDate = date;
+                        }
+                    }
+
                     employeeAttendances.Add(new AttendanceOutput
                     {
                         Date = date,
