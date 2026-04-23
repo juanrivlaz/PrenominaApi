@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Rol", SectionCode.Role)]
     [Table("roles")]
     public class Role
     {

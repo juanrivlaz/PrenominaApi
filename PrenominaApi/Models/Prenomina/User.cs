@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Usuario", SectionCode.User)]
     [Index(nameof(Email), IsUnique = true)]
     [Table("user")]
     public class User
@@ -16,6 +19,7 @@ namespace PrenominaApi.Models.Prenomina
         [Column("email")]
         public required string Email { get; set; }
         [Column("password")]
+        [AuditProperty("contraseña", Sensitive = true)]
         public required string Password { get; set; }
         [Column("role_id")]
         public required Guid RoleId { get; set; }

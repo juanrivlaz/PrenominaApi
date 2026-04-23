@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Asignación de horario a empleado", SectionCode.WorkSchedule, IdentifierProperties = new[] { "EmployeeCode" })]
     [Index(nameof(EmployeeCode), nameof(CompanyId), nameof(EffectiveFrom))]
     [Index(nameof(WorkScheduleId))]
     [Table("employee_work_schedule_assignment")]

@@ -1,8 +1,11 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Regla ignorar incidencia (empleado)", SectionCode.IgnoreIncident, IdentifierProperties = new[] { "EmployeeCode", "IncidentCode" })]
     [Table("ignore_incident_to_employee")]
     public class IgnoreIncidentToEmployee
     {

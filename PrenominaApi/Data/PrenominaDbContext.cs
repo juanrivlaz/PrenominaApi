@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Newtonsoft.Json;
 using PrenominaApi.Extensions;
@@ -12,11 +13,21 @@ namespace PrenominaApi.Data
     public class PrenominaDbContext : DbContext
     {
         private readonly TimeZoneInfo _timeZone;
+        private readonly IHttpContextAccessor? _httpContextAccessor;
+
+        /// <summary>
+        /// Cuando es true, SaveChanges no genera registros automáticos en audit_log.
+        /// Útil para bulk operations (sync de relojes, BioTime) donde se prefiere un audit agregado manual.
+        /// </summary>
+        public bool SkipAudit { get; set; } = false;
+
         public PrenominaDbContext(
             DbContextOptions<PrenominaDbContext> options,
-            TimeZoneInfo timeZone
+            TimeZoneInfo timeZone,
+            IHttpContextAccessor? httpContextAccessor = null
         ) : base(options) {
             _timeZone = timeZone;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public DbSet<AssistanceIncident> assistanceIncidents { get; set; }
@@ -291,18 +302,50 @@ namespace PrenominaApi.Data
 
         public override int SaveChanges()
         {
-            foreach (var entity in ChangeTracker.Entries()) {
+            // 1. Capturar audit ANTES de cualquier transformación de estado (incluida
+            //    la conversión de Delete → soft-delete de abajo) para distinguir
+            //    borrados lógicos de modificaciones normales.
+            var pendingAudits = SkipAudit
+                ? new List<AuditLogBuilder.PendingAudit>()
+                : AuditLogBuilder.Capture(ChangeTracker);
+
+            // 2. Soft-delete: convertir Delete → Modified + DeletedAt = UtcNow.
+            //    Soporta tanto DateTime como DateTime? (las entidades del dominio usan DateTime?).
+            foreach (var entity in ChangeTracker.Entries())
+            {
                 var entityType = entity.Entity.GetType();
                 var deletedAtProperty = entityType.GetProperty("DeletedAt");
+                var isDateTimeType = deletedAtProperty != null &&
+                    (deletedAtProperty.PropertyType == typeof(DateTime) ||
+                     deletedAtProperty.PropertyType == typeof(DateTime?));
 
-                if (entity.State == EntityState.Deleted && deletedAtProperty != null && deletedAtProperty.PropertyType == typeof(DateTime))
+                if (entity.State == EntityState.Deleted && isDateTimeType)
                 {
                     entity.State = EntityState.Modified;
-                    deletedAtProperty.SetValue(entity.Entity, DateTime.UtcNow);
+                    deletedAtProperty!.SetValue(entity.Entity, DateTime.UtcNow);
                 }
             }
 
-            return base.SaveChanges();
+            var result = base.SaveChanges();
+
+            // 3. Persistir audit logs después de que las entidades tengan PK asignada.
+            if (pendingAudits.Count > 0)
+            {
+                var userId = ResolveCurrentUserId();
+                if (userId.HasValue)
+                {
+                    auditLogs.AddRange(AuditLogBuilder.Build(pendingAudits, userId.Value));
+                    base.SaveChanges();
+                }
+            }
+
+            return result;
+        }
+
+        private Guid? ResolveCurrentUserId()
+        {
+            var raw = _httpContextAccessor?.HttpContext?.User?.FindFirst("UserId")?.Value;
+            return Guid.TryParse(raw, out var id) ? id : (Guid?)null;
         }
 
         public static void Seed(PrenominaDbContext context)

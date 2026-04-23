@@ -1,8 +1,11 @@
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Exclusión de horas extras por actividad", SectionCode.OvertimeConfig, IdentifierProperties = new[] { "ActivityId" })]
     [Table("activity_overtime_configs")]
     public class ActivityOvertimeConfig
     {

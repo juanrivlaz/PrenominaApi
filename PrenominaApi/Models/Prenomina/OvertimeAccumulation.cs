@@ -1,3 +1,5 @@
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -6,6 +8,7 @@ namespace PrenominaApi.Models.Prenomina
     /// <summary>
     /// Representa el balance acumulado de horas extras de un empleado
     /// </summary>
+    [Auditable("Balance de horas extras", SectionCode.Overtime, IdentifierProperties = new[] { "EmployeeCode" })]
     [Table("overtime_accumulations")]
     public class OvertimeAccumulation
     {

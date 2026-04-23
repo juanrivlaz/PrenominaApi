@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Configuración de horario por actividad", SectionCode.WorkSchedule, IdentifierProperties = new[] { "ActivityId" })]
     [Index(nameof(ActivityId), nameof(CompanyId), IsUnique = true)]
     [Index(nameof(WorkScheduleId))]
     [Table("activity_work_schedule_configs")]

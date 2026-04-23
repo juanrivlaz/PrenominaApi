@@ -1,10 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Attributes;
 using PrenominaApi.Models.Prenomina.Enums;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Código de incidencia", SectionCode.IncidentCode, IdentifierProperties = new[] { "Label", "Code" })]
     [Index(nameof(Code), IsUnique = true)]
     [Table("incident_code")]
     public class IncidentCode

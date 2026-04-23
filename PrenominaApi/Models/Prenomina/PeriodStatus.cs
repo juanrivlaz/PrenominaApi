@@ -1,8 +1,11 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Estado de periodo (cierre/apertura)", SectionCode.Periods, IdentifierProperties = new[] { "NumPeriod", "TenantId" })]
     [Table("period_status")]
     public class PeriodStatus
     {

@@ -1,8 +1,11 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Periodo de nómina", SectionCode.Periods, IdentifierProperties = new[] { "NumPeriod", "Year" })]
     [Table("period")]
     public class Period
     {

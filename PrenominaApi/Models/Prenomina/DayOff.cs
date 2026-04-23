@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Día festivo / descanso", SectionCode.DayOff, IdentifierProperties = new[] { "Description", "Date" })]
     [Index(nameof(Date), IsUnique = true)]
     [Table("day_off")]
     public class DayOff

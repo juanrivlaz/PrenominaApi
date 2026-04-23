@@ -1,9 +1,11 @@
-﻿using PrenominaApi.Models.Prenomina.Enums;
+﻿using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PrenominaApi.Models.Prenomina
 {
+    [Auditable("Solicitud de ausencia", SectionCode.AbsenceRequest, IdentifierProperties = new[] { "EmployeeCode" })]
     [Table("employee_absence_requests")]
     public class EmployeeAbsenceRequests
     {

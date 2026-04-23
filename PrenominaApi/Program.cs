@@ -84,6 +84,9 @@ else
 var timeZone = builder.Configuration.GetValue<string>("TimeZone") ?? "Central Standard Time (Mexico)";
 builder.Services.AddSingleton<TimeZoneInfo>(TimeZoneInfo.FindSystemTimeZoneById(timeZone));
 
+// Requerido por PrenominaDbContext para resolver el UserId actual en audit_log
+builder.Services.AddHttpContextAccessor();
+
 // Dependency injection
 ServicePool.RegistryService(builder);
 
