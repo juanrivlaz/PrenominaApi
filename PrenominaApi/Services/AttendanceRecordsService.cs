@@ -184,8 +184,7 @@ namespace PrenominaApi.Services
             var checkinsRangeEnd = periodDates.ClosingDate.AddDays(1);
             var attendances = _employeeCheckIns.GetContextEntity()
                 .AsNoTracking()
-                .Where(item => item.CheckIn != TimeOnly.MinValue &&
-                               item.Date >= periodDates.StartDate &&
+                .Where(item => item.Date >= periodDates.StartDate &&
                                item.Date <= checkinsRangeEnd &&
                                paginatedEmployeeCodes.Contains(item.EmployeeCode) &&
                                item.CompanyId == filter.Company)
@@ -687,8 +686,7 @@ namespace PrenominaApi.Services
             // Obtener checkins
             var attendances = _employeeCheckIns.GetContextEntity()
                 .AsNoTracking()
-                .Where(a => a.CheckIn != TimeOnly.MinValue &&
-                            a.Date >= period.StartDate &&
+                .Where(a => a.Date >= period.StartDate &&
                             a.Date <= period.ClosingDate &&
                             codesToFilter.Contains(a.EmployeeCode) &&
                             a.CompanyId == downloadAttendance.Company)
