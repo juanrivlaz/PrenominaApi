@@ -10,6 +10,7 @@ using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
+using PrenominaApi.Services.Prenomina.Helpers;
 using PrenominaApi.Services.Utilities;
 using Serilog;
 using System.Data;
@@ -570,7 +571,7 @@ namespace PrenominaApi.Services.Prenomina
                             // Si el empleado tiene horario asignado, clasificar por horario
                             if (scheduleMap.TryGetValue((int)employeeCode, out var schedule) && schedule != null)
                             {
-                                eos = ClassifyBySchedule(timeOnly, schedule);
+                                eos = WorkScheduleClassifier.ClassifyBySchedule(timeOnly, schedule);
                             }
                             else
                             {
@@ -690,7 +691,7 @@ namespace PrenominaApi.Services.Prenomina
                 // Si el empleado tiene horario asignado, clasificar por horario
                 if (scheduleMap.TryGetValue((int)employeeCode, out var schedule) && schedule != null)
                 {
-                    eos = ClassifyBySchedule(timeOnly, schedule);
+                    eos = WorkScheduleClassifier.ClassifyBySchedule(timeOnly, schedule);
                 }
                 else
                 {
@@ -744,21 +745,6 @@ namespace PrenominaApi.Services.Prenomina
         /// Para turnos nocturnos: checadas cercanas al end_time (madrugada) → Exit,
         /// checadas cercanas al start_time (tarde/noche) → Entry.
         /// </summary>
-        private static EntryOrExit ClassifyBySchedule(TimeOnly checkTime, WorkSchedule schedule)
-        {
-            if (!schedule.IsNightShift)
-            {
-                var midPoint = schedule.StartTime.AddMinutes(
-                    (schedule.EndTime.ToTimeSpan() - schedule.StartTime.ToTimeSpan()).TotalMinutes / 2);
-                return checkTime < midPoint ? EntryOrExit.Entry : EntryOrExit.Exit;
-            }
-
-            // Turno nocturno: end_time es en la madrugada (ej: 06:00), start_time en la tarde/noche (ej: 22:00)
-            // Checadas antes de end_time + 4h de gracia → Exit (salida del turno anterior)
-            var cutoff = schedule.EndTime.AddHours(4);
-            return checkTime < cutoff ? EntryOrExit.Exit : EntryOrExit.Entry;
-        }
-
         private DataTable BuildEmployeeCheckInsTable(List<EmployeeCheckIns> items)
         {
             var table = new DataTable();

@@ -9,6 +9,7 @@ using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
+using PrenominaApi.Services.Prenomina.Helpers;
 
 namespace PrenominaApi.Services.Prenomina
 {
@@ -487,11 +488,16 @@ namespace PrenominaApi.Services.Prenomina
                 };
             }
 
-            var employeeSchedules = nightScheduleAssignments
+            // Un empleado puede tener varias asignaciones de turno nocturno en periodos
+            // distintos; las conservamos todas y resolvemos por fecha de la checada.
+            var assignmentsByEmployee = nightScheduleAssignments
                 .GroupBy(a => a.EmployeeCode)
-                .ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.EffectiveFrom).First());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(a => a.EffectiveFrom).ToList()
+                );
 
-            var employeeCodes = employeeSchedules.Keys.ToList();
+            var employeeCodes = assignmentsByEmployee.Keys.ToList();
 
             var checkIns = _employeeCheckInsRepository.GetContextEntity()
                 .Where(ci => employeeCodes.Contains(ci.EmployeeCode)
@@ -501,22 +507,20 @@ namespace PrenominaApi.Services.Prenomina
 
             int totalFixed = 0;
 
-            // Corregir EoS de cada checada según el horario.
-            // Turno nocturno: checadas antes del StartTime son salida del turno anterior (Exit);
-            // desde StartTime son entrada del turno actual (Entry).
-            // El pareado Entry/Exit que cruzan medianoche lo realiza AttendanceRecordsService
-            // al construir la vista, buscando la Exit del día siguiente cuando el día actual
-            // no tiene Exit posterior al StartTime.
+            // Reclasifica cada checada ignorando el EoS actual, usando el mismo
+            // clasificador que ClockService aplica al ingerir checadas del reloj.
             foreach (var ci in checkIns)
             {
-                if (!employeeSchedules.TryGetValue(ci.EmployeeCode, out var assignment) || assignment.WorkSchedule == null)
+                if (!assignmentsByEmployee.TryGetValue(ci.EmployeeCode, out var assignments))
                     continue;
 
-                if (ci.Date < assignment.EffectiveFrom || (assignment.EffectiveTo != null && ci.Date > assignment.EffectiveTo))
+                var assignment = assignments.FirstOrDefault(a =>
+                    ci.Date >= a.EffectiveFrom && (a.EffectiveTo == null || ci.Date <= a.EffectiveTo));
+
+                if (assignment?.WorkSchedule == null)
                     continue;
 
-                var schedule = assignment.WorkSchedule;
-                var correctEoS = ci.CheckIn < schedule.StartTime ? EntryOrExit.Exit : EntryOrExit.Entry;
+                var correctEoS = WorkScheduleClassifier.ClassifyBySchedule(ci.CheckIn, assignment.WorkSchedule);
 
                 if (ci.EoS != correctEoS)
                 {
