@@ -76,4 +76,13 @@ namespace PrenominaApi.Models.Dto.BioTime
 
         public string GetApiBaseUrl() => $"https://{Company}.biotime.mx";
     }
+
+    /// <summary>
+    /// Rango opcional para la sincronización manual (formato yyyy-MM-dd)
+    /// </summary>
+    public class BioTimeSyncRangeRequest
+    {
+        public string? StartDate { get; set; }
+        public string? EndDate { get; set; }
+    }
 }

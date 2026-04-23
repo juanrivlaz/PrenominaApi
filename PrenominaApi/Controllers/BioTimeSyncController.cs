@@ -50,9 +50,30 @@ namespace PrenominaApi.Controllers
         }
 
         [HttpPost("sync-now")]
-        public async Task<ActionResult> SyncNow()
+        public async Task<ActionResult> SyncNow([FromBody] BioTimeSyncRangeRequest? request = null)
         {
-            var result = await _service.SyncYesterdayAttendance();
+            DateTime startDate;
+            DateTime endDate;
+
+            if (request != null && !string.IsNullOrWhiteSpace(request.StartDate) && !string.IsNullOrWhiteSpace(request.EndDate))
+            {
+                if (!DateTime.TryParse(request.StartDate, out startDate) ||
+                    !DateTime.TryParse(request.EndDate, out endDate))
+                {
+                    return BadRequest(new { message = "Fechas inválidas. Use el formato yyyy-MM-dd." });
+                }
+
+                if (startDate > endDate)
+                {
+                    return BadRequest(new { message = "La fecha de inicio no puede ser mayor a la fecha fin." });
+                }
+            }
+            else
+            {
+                startDate = endDate = DateTime.Now.AddDays(-1);
+            }
+
+            var result = await _service.SyncAttendanceRange(startDate, endDate);
             return result
                 ? Ok(new { message = "Sincronización completada" })
                 : BadRequest(new { message = "Error en la sincronización. Revise los logs." });

@@ -38,7 +38,16 @@ namespace PrenominaApi.Services.Prenomina
         /// <summary>
         /// Ejecuta la sincronización de checadas del día anterior
         /// </summary>
-        public async Task<bool> SyncYesterdayAttendance()
+        public Task<bool> SyncYesterdayAttendance()
+        {
+            var yesterday = DateTime.Now.AddDays(-1);
+            return SyncAttendanceRange(yesterday, yesterday);
+        }
+
+        /// <summary>
+        /// Ejecuta la sincronización de checadas para un rango de fechas
+        /// </summary>
+        public async Task<bool> SyncAttendanceRange(DateTime startDate, DateTime endDate)
         {
             var config = await GetSyncConfig();
             if (config == null || !config.Enabled)
@@ -54,10 +63,10 @@ namespace PrenominaApi.Services.Prenomina
                 return false;
             }
 
-            var yesterday = DateTime.Now.AddDays(-1);
-            var dateStr = yesterday.ToString("yyyy-MM-dd");
+            var startStr = startDate.ToString("yyyy-MM-dd");
+            var endStr = endDate.ToString("yyyy-MM-dd");
 
-            Log.Information("BioTimeSync: Iniciando sincronización para fecha {Date}", dateStr);
+            Log.Information("BioTimeSync: Iniciando sincronización para rango {Start} - {End}", startStr, endStr);
 
             try
             {
@@ -68,14 +77,14 @@ namespace PrenominaApi.Services.Prenomina
                     return false;
                 }
 
-                var allRecords = await FetchAllPages(credentials.GetApiBaseUrl(), token, dateStr);
+                var allRecords = await FetchAllPages(credentials.GetApiBaseUrl(), token, startStr, endStr);
                 if (!allRecords.Any())
                 {
-                    Log.Information("BioTimeSync: No se encontraron registros para {Date}", dateStr);
+                    Log.Information("BioTimeSync: No se encontraron registros para {Start} - {End}", startStr, endStr);
                     return true;
                 }
 
-                await ProcessAndInsertRecords(allRecords, yesterday);
+                await ProcessAndInsertRecords(allRecords);
 
                 Log.Information("BioTimeSync: Sincronización completada. {Count} registros procesados", allRecords.Count);
                 return true;
@@ -120,7 +129,7 @@ namespace PrenominaApi.Services.Prenomina
         /// <summary>
         /// Obtiene todos los registros paginados del API
         /// </summary>
-        private async Task<List<BioTimeAttendanceRecord>> FetchAllPages(string baseUrl, string token, string date)
+        private async Task<List<BioTimeAttendanceRecord>> FetchAllPages(string baseUrl, string token, string startDate, string endDate)
         {
             var allRecords = new List<BioTimeAttendanceRecord>();
             var client = _httpClientFactory.CreateClient();
@@ -132,7 +141,7 @@ namespace PrenominaApi.Services.Prenomina
 
             while (hasMore)
             {
-                var url = $"{baseUrl}/att/api/totalTimeCardReport/?start_date={date}&end_date={date}&page={page}";
+                var url = $"{baseUrl}/att/api/totalTimeCardReport/?start_date={startDate}&end_date={endDate}&page={page}";
                 var response = await client.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
@@ -160,7 +169,7 @@ namespace PrenominaApi.Services.Prenomina
         /// Procesa los registros de BioTime e inserta en employee_check_ins
         /// usando la misma lógica de MERGE que ClockService
         /// </summary>
-        private async Task ProcessAndInsertRecords(List<BioTimeAttendanceRecord> records, DateTime syncDate)
+        private async Task ProcessAndInsertRecords(List<BioTimeAttendanceRecord> records)
         {
             // Obtener todos los códigos de empleados del API
             var empCodes = records.Select(r => r.EmpCode).Distinct().ToList();
