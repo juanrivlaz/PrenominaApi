@@ -207,6 +207,30 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPatch("delete-checkins")]
+        public ActionResult<bool> DeleteCheckins([FromBody] DeleteCheckins deleteCheckins)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            deleteCheckins.UserId = userId;
+            deleteCheckins.CompanyId = companyId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<DeleteCheckins, bool>(deleteCheckins);
+
+            return Ok(result);
+        }
+
         [HttpPost("fix-night-shift-eos")]
         public ActionResult<FixNightShiftEoSResult> FixNightShiftEoS()
         {

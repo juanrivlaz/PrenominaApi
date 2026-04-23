@@ -352,6 +352,45 @@ namespace PrenominaApi.Services.Prenomina
             });
         }
 
+        public bool ExecuteProcess(DeleteCheckins deleteCheckins)
+        {
+            if (deleteCheckins.CheckEntryId == null && deleteCheckins.CheckOutId == null)
+            {
+                return false;
+            }
+
+            var now = DateTime.UtcNow;
+            var userId = Guid.Parse(deleteCheckins.UserId!);
+
+            void SoftDelete(string id, string eosLabel)
+            {
+                var record = _employeeCheckInsRepository.GetById(Guid.Parse(id));
+                if (record == null) return;
+
+                record.DeletedAt = now;
+                record.UpdatedAt = now;
+                _employeeCheckInsRepository.Update(record);
+
+                _auditLogRepository.Create(new AuditLog()
+                {
+                    SectionCode = "TASISTENCIA",
+                    RecordId = id,
+                    Description = $"Se eliminó la {eosLabel} de asistencia para el empleado {record.EmployeeCode} de la empresa {record.CompanyId} el día {record.Date:dd-MM-yyyy}.",
+                    OldValue = record.CheckIn.ToString("HH:mm:ss"),
+                    NewValue = "",
+                    ByUserId = userId,
+                });
+            }
+
+            if (deleteCheckins.CheckEntryId != null) SoftDelete(deleteCheckins.CheckEntryId, "Entrada");
+            if (deleteCheckins.CheckOutId != null) SoftDelete(deleteCheckins.CheckOutId, "Salida");
+
+            _employeeCheckInsRepository.Save();
+            _auditLogRepository.Save();
+
+            return true;
+        }
+
         public bool ExecuteProcess(ChangeAttendance changeAttendance)
         {
             // Cambiar la asistencia de entrada
