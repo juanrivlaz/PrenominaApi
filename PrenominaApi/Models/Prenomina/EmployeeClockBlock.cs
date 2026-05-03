@@ -1,0 +1,33 @@
+using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace PrenominaApi.Models.Prenomina
+{
+    [Auditable("Bloqueo de empleado en relojes", SectionCode.Clock, IdentifierProperties = new[] { "EmployeeCode" })]
+    [Table("employee_clock_blocks")]
+    public class EmployeeClockBlock
+    {
+        [Key]
+        public int Id { get; set; }
+
+        [Required]
+        [Column("employee_code")]
+        public int EmployeeCode { get; set; }
+
+        [Required]
+        [Column("company_id")]
+        public int CompanyId { get; set; }
+
+        [Required]
+        [Column("is_blocked")]
+        public bool IsBlocked { get; set; } = false;
+
+        [Column("created_at")]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [Column("updated_at")]
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
+}

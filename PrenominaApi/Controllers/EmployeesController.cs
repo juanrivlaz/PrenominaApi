@@ -23,17 +23,20 @@ namespace PrenominaApi.Controllers
         private readonly GlobalPropertyService _globalPropertyService;
         private readonly PrenominaDbContext _context;
         private readonly WorkScheduleService _workScheduleService;
+        private readonly IBaseServicePrenomina<Models.Prenomina.Clock> _clockService;
 
         public EmployeesController(
             IBaseService<Employee> service,
             GlobalPropertyService globalPropertyService,
             PrenominaDbContext context,
-            WorkScheduleService workScheduleService)
+            WorkScheduleService workScheduleService,
+            IBaseServicePrenomina<Models.Prenomina.Clock> clockService)
         {
             _service = service;
             _globalPropertyService = globalPropertyService;
             _context = context;
             _workScheduleService = workScheduleService;
+            _clockService = clockService;
         }
 
         private int GetCompanyId()
@@ -108,6 +111,58 @@ namespace PrenominaApi.Controllers
             else
             {
                 config.ExcludeOvertime = input.ExcludeOvertime;
+                config.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(true);
+        }
+
+        [HttpGet("clock-block-configs")]
+        [Authorize]
+        public async Task<ActionResult> GetClockBlockConfigs()
+        {
+            var companyId = GetCompanyId();
+
+            var configs = await _context.employeeClockBlocks
+                .AsNoTracking()
+                .Where(c => c.CompanyId == companyId && c.IsBlocked)
+                .Select(c => c.EmployeeCode)
+                .ToListAsync();
+
+            return Ok(configs);
+        }
+
+        [HttpPut("{employeeCode}/block-on-clocks")]
+        [Authorize]
+        public async Task<ActionResult<bool>> UpdateBlockOnClocks(int employeeCode, [FromBody] BlockOnClocksInput input)
+        {
+            var companyId = GetCompanyId();
+
+            await _clockService.ExecuteProcess<BlockEmployeeOnAllClocks, Task<bool>>(new BlockEmployeeOnAllClocks
+            {
+                EmployeeCode = employeeCode,
+                Blocked = input.Blocked
+            });
+
+            var config = await _context.employeeClockBlocks
+                .FirstOrDefaultAsync(c => c.EmployeeCode == employeeCode && c.CompanyId == companyId);
+
+            if (config == null)
+            {
+                config = new Models.Prenomina.EmployeeClockBlock
+                {
+                    EmployeeCode = employeeCode,
+                    CompanyId = companyId,
+                    IsBlocked = input.Blocked,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _context.employeeClockBlocks.Add(config);
+            }
+            else
+            {
+                config.IsBlocked = input.Blocked;
                 config.UpdatedAt = DateTime.UtcNow;
             }
 

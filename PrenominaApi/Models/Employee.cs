@@ -24,6 +24,10 @@ namespace PrenominaApi.Models
         public DateTime? SeniorityDate { get; set; }
         [Column("activo")]
         public char? Active { get; set; }
+        [Column("ultmov")]
+        public char LastMovement { get; set; }
+        [Column("ultfchmov")]
+        public DateTime LastMovementDate { get; set; }
 
         [NotMapped]
         public virtual IEnumerable<Key>? Keys { get; set; }

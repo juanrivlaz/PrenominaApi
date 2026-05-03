@@ -29,6 +29,8 @@ namespace PrenominaApi.Models.Prenomina
         public DateTime UpdatedAt {  get; set; } = DateTime.UtcNow;
         [Column("deleted_at")]
         public DateTime? DeletedAt { get; set; } = null;
+        [Column("last_connection_at")]
+        public DateTime? LastConnectionAt { get; set; } = null;
         [NotMapped]
         public virtual Role? Role { get; set; }
         [NotMapped]

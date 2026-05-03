@@ -154,6 +154,7 @@ namespace PrenominaApi.Services
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             var lowerSearch = filter.Search?.ToLower();
+            var startDateTime = periodDates.StartDate.ToDateTime(TimeOnly.MinValue);
 
             // Paginación de empleados
             var employees = _employeeService.GetWithPagination(
@@ -162,6 +163,7 @@ namespace PrenominaApi.Services
                 item => employeeCodes.Contains(item.Codigo) &&
                         item.Company == filter.Company &&
                         item.Active == 'S' &&
+                        (item.LastMovement != 'B' || item.LastMovementDate >= startDateTime) &&
                         (string.IsNullOrWhiteSpace(lowerSearch) ||
                          item.Codigo.ToString().Contains(lowerSearch) ||
                          (item.Name + " " + item.LastName + " " + item.MLastName).ToLower().Contains(lowerSearch))
@@ -677,8 +679,12 @@ namespace PrenominaApi.Services
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             // Obtener empleados
+            var startDateTime = period.StartDate.ToDateTime(TimeOnly.MinValue);
             var employees = _employeeService.GetByFilter(
-                e => employeeCodes.Contains(e.Codigo) && e.Company == downloadAttendance.Company && e.Active == 'S'
+                e => employeeCodes.Contains(e.Codigo) &&
+                     e.Company == downloadAttendance.Company &&
+                     e.Active == 'S' &&
+                     (e.LastMovement != 'B' || e.LastMovementDate >= startDateTime)
             ).ToList();
 
             var codesToFilter = employees.Select(e => e.Codigo).ToHashSet();

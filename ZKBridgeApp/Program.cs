@@ -49,6 +49,18 @@ namespace ZKBridgeApp
                         Console.WriteLine("{\"status\":\"ok\"}");
                         break;
 
+                    case "enableordisableuser":
+                        if (args.Length < 5)
+                        {
+                            Console.Error.WriteLine("Uso: ZKBridgeApp.exe <ip> <port> enableordisableuser <enrollNumber> <enable 0|1>");
+                            return;
+                        }
+                        int enrollNumber = int.Parse(args[3]);
+                        bool enable = args[4] == "1" || args[4].Equals("true", StringComparison.OrdinalIgnoreCase);
+                        zk.EnableOrDisableUser(enrollNumber, enable);
+                        Console.WriteLine("{\"status\":\"ok\"}");
+                        break;
+
                     default:
                         Console.Error.WriteLine($"Método '{method}' no reconocido.");
                         break;

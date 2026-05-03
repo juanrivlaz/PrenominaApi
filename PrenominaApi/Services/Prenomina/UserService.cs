@@ -283,6 +283,11 @@ namespace PrenominaApi.Services.Prenomina
 
                 if (validPassword == PasswordVerificationResult.Success)
                 {
+                    var connectionTime = DateTime.UtcNow;
+                    _repository.GetContextEntity()
+                        .Where(u => u.Id == findUser.Id)
+                        .ExecuteUpdate(setters => setters.SetProperty(u => u.LastConnectionAt, connectionTime));
+
                     // Reconstruir objeto User mínimo para JWT
                     var userForToken = new User
                     {

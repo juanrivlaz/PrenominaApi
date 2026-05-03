@@ -352,7 +352,7 @@ namespace PrenominaApi.Services.Prenomina
                         )");
 
                     List<string> enrollNumbers = result.Select(x => x.EnrollNumber).Distinct().ToList();
-                    var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains(e.Codigo.ToString()) && e.Active == 'S').Select(e =>
+                    var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains(e.Codigo.ToString()) && e.Active == 'S' && e.LastMovement != 'B').Select(e =>
                     (
                         e.Codigo,
                         e.Company
@@ -531,7 +531,7 @@ namespace PrenominaApi.Services.Prenomina
                         DateOnly minDate = dateRange.Min().AddDays(-1);
                         DateOnly maxDate = dateRange.Max();
 
-                        var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains((int)e.Codigo) && e.Active == 'S').Select(e => new
+                        var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains((int)e.Codigo) && e.Active == 'S' && e.LastMovement != 'B').Select(e => new
                         {
                             e.Codigo,
                             e.Company
@@ -654,6 +654,75 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             return true;
+        }
+
+        public async Task<bool> ExecuteProcess(BlockEmployeeOnAllClocks input)
+        {
+            var clocks = _repository.GetAll().ToList();
+
+            if (clocks.Count == 0)
+            {
+                throw new BadHttpRequestException("No hay relojes registrados.");
+            }
+
+            var failures = new List<string>();
+
+            foreach (var clock in clocks)
+            {
+                try
+                {
+                    await PushBlockToClock(clock, input.EmployeeCode, input.Blocked);
+                }
+                catch (Exception err)
+                {
+                    Log.Error($"Bloqueo en reloj {clock.Label} ({clock.Ip}) fallo - {err.Message}");
+                    failures.Add(clock.Label);
+                }
+            }
+
+            if (failures.Count > 0)
+            {
+                throw new BadHttpRequestException(
+                    $"No se pudo aplicar el cambio en {failures.Count} reloj(es): {string.Join(", ", failures)}. Verifica la conexion e intentalo de nuevo."
+                );
+            }
+
+            return true;
+        }
+
+        private async Task PushBlockToClock(Clock clock, int employeeCode, bool blocked)
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = @"tools/zkbridge/ZKBridgeApp.exe",
+                    Arguments = $"{clock.Ip} {clock.Port ?? 4370} enableordisableuser {employeeCode} {(blocked ? 0 : 1)}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+
+            string output = await process.StandardOutput.ReadToEndAsync();
+            string error = await process.StandardError.ReadToEndAsync();
+
+            process.WaitForExit();
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                throw new Exception(error.Trim());
+            }
+
+            output = ClearClockJsonResponse.OutputJson(output);
+
+            if (string.IsNullOrWhiteSpace(output) || !output.Contains("\"ok\""))
+            {
+                throw new Exception($"Respuesta inesperada del reloj: {output}");
+            }
         }
     
         private List<EmployeeCheckIns> BuildCheckInsLogic(List<ClockAttendance> logs, List<(decimal Codigo, decimal Company)> employees, Dictionary<int, WorkSchedule?> scheduleMap)

@@ -66,6 +66,7 @@ namespace PrenominaApi.Data
         public DbSet<OvertimeAccumulation> overtimeAccumulations { get; set; }
         public DbSet<OvertimeMovementLog> overtimeMovementLogs { get; set; }
         public DbSet<EmployeeOvertimeConfig> employeeOvertimeConfigs { get; set; }
+        public DbSet<EmployeeClockBlock> employeeClockBlocks { get; set; }
         public DbSet<ActivityOvertimeConfig> activityOvertimeConfigs { get; set; }
         public DbSet<EmployeeWorkScheduleAssignment> employeeWorkScheduleAssignments { get; set; }
         public DbSet<ActivityWorkScheduleConfig> activityWorkScheduleConfigs { get; set; }
@@ -262,6 +263,11 @@ namespace PrenominaApi.Data
             });
 
             modelBuilder.Entity<EmployeeOvertimeConfig>(entity =>
+            {
+                entity.HasIndex(c => new { c.EmployeeCode, c.CompanyId }).IsUnique();
+            });
+
+            modelBuilder.Entity<EmployeeClockBlock>(entity =>
             {
                 entity.HasIndex(c => new { c.EmployeeCode, c.CompanyId }).IsUnique();
             });
