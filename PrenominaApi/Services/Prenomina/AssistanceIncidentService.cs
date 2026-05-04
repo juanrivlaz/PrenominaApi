@@ -401,7 +401,7 @@ namespace PrenominaApi.Services.Prenomina
             {
                 var periodForCheck = _periodService.ExecuteProcess<FindPeriod, Models.Prenomina.Period?>(new FindPeriod()
                 {
-                    CompanyId = changeAttendance.CompanyId,
+                    CompanyId = (int)changeAttendance.CompanyId,
                     Date = changeAttendance.Date,
                     TypePayroll = keyForPeriod.TypeNom,
                     Year = _globalPropertyService.YearOfOperation,
@@ -411,7 +411,7 @@ namespace PrenominaApi.Services.Prenomina
                 {
                     var isClosed = _periodService.ExecuteProcess<VerifyClosedPeriod, bool>(new VerifyClosedPeriod()
                     {
-                        CompanyId = changeAttendance.CompanyId,
+                        CompanyId = (int)changeAttendance.CompanyId,
                         TenantId = _globalPropertyService.TypeTenant == TypeTenant.Department ? keyForPeriod.Center.Trim() : keyForPeriod.Supervisor.ToString(),
                         NumPeriod = periodForCheck.NumPeriod,
                         TypePayroll = keyForPeriod.TypeNom,
