@@ -21,6 +21,8 @@ namespace PrenominaApi.Models
         public int? Days { get; set; }
         [Column("fchterm")]
         public DateTime? TerminationDate { get; set; }
+        [Column("vencido")]
+        public char? Expired { get; set; }
         [Column("sueldo")]
         public decimal? Salary { get; set; }
     }
