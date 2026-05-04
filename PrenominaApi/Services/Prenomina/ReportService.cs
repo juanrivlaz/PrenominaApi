@@ -131,7 +131,7 @@ namespace PrenominaApi.Services.Prenomina
                         SELECT
                             ews.start_time,
                             1 AS priority,
-                            ews.effective_from
+                            ewsa.effective_from
                         FROM employee_work_schedule_assignment AS ewsa
                         INNER JOIN work_schedule AS ews
                             ON ews.id = ewsa.work_schedule_id
