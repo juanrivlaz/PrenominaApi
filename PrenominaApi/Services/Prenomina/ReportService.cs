@@ -91,6 +91,7 @@ namespace PrenominaApi.Services.Prenomina
                 ).Select(k => new
                 {
                     k.Codigo,
+                    k.Ocupation,
                     FullName = $"{k.Employee.Name} {k.Employee.LastName} {k.Employee.MLastName}",
                     Department = k.CenterItem != null ? k.CenterItem.DepartmentName : string.Empty,
                     JobPosition = k.Tabulator.Activity
@@ -102,7 +103,11 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             var employeeDict = employees.ToDictionary(e => e.Codigo);
-            var employeeCodesJson = JsonSerializer.Serialize(employeeDict.Keys);
+            // Mapping (code, ocupacion) que reemplaza al JOIN con la tabla legacy "Llaves".
+            // Llaves vive en ApplicationDbContext; esta query corre sobre PrenominaDbContext.
+            var employeeMapJson = JsonSerializer.Serialize(
+                employees.Select(e => new { code = (int)e.Codigo, ocup = e.Ocupation })
+            );
             // Para cada checada se determina el horario aplicable en este orden:
             // 1) Asignación individual (employee_work_schedule_assignment) vigente en la fecha.
             // 2) Configuración por actividad (activity_work_schedule_configs) según ocupación del empleado.
@@ -117,9 +122,9 @@ namespace PrenominaApi.Services.Prenomina
                     DATEDIFF(MINUTE, ws.start_time, eci.check_in) AS MinsLate,
                     checkout.CheckOut
                 FROM employee_check_ins AS eci
-                INNER JOIN Llaves AS k
-                    ON k.codigo = eci.employee_code
-                    AND k.empresa = @company
+                INNER JOIN OPENJSON(@employeeMap)
+                    WITH (code int '$.code', ocup int '$.ocup') AS k
+                    ON k.code = eci.employee_code
                 CROSS APPLY (
                     SELECT TOP 1 ws_inner.start_time
                     FROM (
@@ -145,7 +150,7 @@ namespace PrenominaApi.Services.Prenomina
                         FROM activity_work_schedule_configs AS awsc
                         INNER JOIN work_schedule AS aws
                             ON aws.id = awsc.work_schedule_id
-                        WHERE awsc.activity_id = k.ocupacion
+                        WHERE awsc.activity_id = k.ocup
                           AND awsc.company_id = @company
                     ) AS ws_inner
                     ORDER BY ws_inner.priority, ws_inner.effective_from DESC
@@ -161,9 +166,6 @@ namespace PrenominaApi.Services.Prenomina
                     eci.EoS = 0
                     AND DATEDIFF(MINUTE, ws.start_time, eci.check_in) > 20
                     AND eci.[date] BETWEEN @startDate AND @closingDate
-                    AND eci.employee_code IN (
-                        SELECT value FROM OPENJSON(@codes)
-                    )
                 GROUP BY
                     eci.employee_code,
                     eci.[date],
@@ -175,7 +177,7 @@ namespace PrenominaApi.Services.Prenomina
                     eci.employee_code;
                 """,
                 new SqlParameter("@company", getReport.Company),
-                new SqlParameter("@codes", employeeCodesJson),
+                new SqlParameter("@employeeMap", employeeMapJson),
                 new SqlParameter("@startDate", StartDate),
                 new SqlParameter("@closingDate", ClosingDate)
             ).ToList();
