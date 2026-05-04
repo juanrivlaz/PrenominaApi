@@ -56,7 +56,7 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             .ToList();
 
             Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
-            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo, logoDataUrl));
+            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo));
             document.SetTopMargin(101);
 
             foreach (var employee in employeeAttendances)
