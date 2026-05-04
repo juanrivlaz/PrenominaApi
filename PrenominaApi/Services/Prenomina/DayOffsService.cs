@@ -543,13 +543,35 @@ namespace PrenominaApi.Services.Prenomina
 
             var employeeCodes = keys.Select(k => k.Codigo).ToList();
 
-            Func<Employee, bool> filter = employee => employee.Company == filterEmployee.CompanyId && employeeCodes.Contains(employee.Codigo);
+            DateTime? periodStart = null;
+            if (filterEmployee.NumPeriod.HasValue && filterEmployee.NumPeriod.Value > 0)
+            {
+                var year = _globalPropertyService.YearOfOperation;
+                var period = _periodRepository.GetByFilter(
+                    p => p.TypePayroll == filterEmployee.TypeNom &&
+                         p.Company == filterEmployee.CompanyId &&
+                         p.NumPeriod == filterEmployee.NumPeriod.Value &&
+                         p.Year == year
+                ).FirstOrDefault();
+
+                if (period != null)
+                {
+                    periodStart = period.StartDate.ToDateTime(TimeOnly.MinValue);
+                }
+            }
+
+            Func<Employee, bool> filter = employee => employee.Company == filterEmployee.CompanyId
+                && employeeCodes.Contains(employee.Codigo)
+                && employee.Active == 'S'
+                && (!periodStart.HasValue || employee.LastMovement != 'B' || employee.LastMovementDate >= periodStart.Value);
 
             if (!string.IsNullOrWhiteSpace(filterEmployee.Search))
-            { 
+            {
                 var searchTerm = filterEmployee.Search.ToLower();
                 filter = employee =>
                     employeeCodes.Contains(employee.Codigo) && employee.Company == filterEmployee.CompanyId &&
+                    employee.Active == 'S' &&
+                    (!periodStart.HasValue || employee.LastMovement != 'B' || employee.LastMovementDate >= periodStart.Value) &&
                     ($"{employee.Name} {employee.LastName} {employee.MLastName}".ToLower().Contains(searchTerm));
             }
 

@@ -10,5 +10,6 @@ namespace PrenominaApi.Models.Dto.Output
         public TimeOnly? BreakEnd { get; set; }
         public decimal WorkHours { get; set; }
         public bool IsNightShift { get; set; }
+        public int WorkDays { get; set; } = 127;
     }
 }

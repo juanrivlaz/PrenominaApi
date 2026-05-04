@@ -139,7 +139,7 @@ namespace PrenominaApi.Services.Prenomina
 
             if (ignoreIncident == true || (ignoreIncident != null && ignoreActivity == true))
             {
-                throw new BadHttpRequestException("El código de incidencia se encuentra ignorado para este usuario.");
+                throw new BadHttpRequestException("Incidencia excluida para este colaborador");
             }
 
             using var transaction = _repository.GetDbContext().Database.BeginTransaction();
@@ -393,6 +393,38 @@ namespace PrenominaApi.Services.Prenomina
 
         public bool ExecuteProcess(ChangeAttendance changeAttendance)
         {
+            // Validar que el periodo no esté cerrado antes de modificar checadas (aplica a TODOS los roles, incluido admin)
+            var keyForPeriod = _keyRepository.GetContextEntity()
+                .FirstOrDefault(k => k.Codigo == changeAttendance.EmployeeCode && k.Company == changeAttendance.CompanyId);
+
+            if (keyForPeriod != null)
+            {
+                var periodForCheck = _periodService.ExecuteProcess<FindPeriod, Models.Prenomina.Period?>(new FindPeriod()
+                {
+                    CompanyId = changeAttendance.CompanyId,
+                    Date = changeAttendance.Date,
+                    TypePayroll = keyForPeriod.TypeNom,
+                    Year = _globalPropertyService.YearOfOperation,
+                });
+
+                if (periodForCheck != null)
+                {
+                    var isClosed = _periodService.ExecuteProcess<VerifyClosedPeriod, bool>(new VerifyClosedPeriod()
+                    {
+                        CompanyId = changeAttendance.CompanyId,
+                        TenantId = _globalPropertyService.TypeTenant == TypeTenant.Department ? keyForPeriod.Center.Trim() : keyForPeriod.Supervisor.ToString(),
+                        NumPeriod = periodForCheck.NumPeriod,
+                        TypePayroll = keyForPeriod.TypeNom,
+                        Year = _globalPropertyService.YearOfOperation,
+                    });
+
+                    if (isClosed)
+                    {
+                        throw new BadHttpRequestException("El periodo está cerrado. No se pueden modificar las checadas.");
+                    }
+                }
+            }
+
             // Cambiar la asistencia de entrada
             if (changeAttendance.CheckEntryId != null)
             {

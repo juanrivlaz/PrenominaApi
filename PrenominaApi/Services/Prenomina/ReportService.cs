@@ -103,6 +103,10 @@ namespace PrenominaApi.Services.Prenomina
 
             var employeeDict = employees.ToDictionary(e => e.Codigo);
             var employeeCodesJson = JsonSerializer.Serialize(employeeDict.Keys);
+            // Para cada checada se determina el horario aplicable en este orden:
+            // 1) Asignación individual (employee_work_schedule_assignment) vigente en la fecha.
+            // 2) Configuración por actividad (activity_work_schedule_configs) según ocupación del empleado.
+            // 3) Si no hay ninguno, se omite la fila (no se puede calcular retardo sin horario).
             var resultQuery = _repository.GetDbContext().Database.SqlQueryRaw<ScheduleEmployeeOutput>(
                 """
                 SELECT
@@ -113,11 +117,38 @@ namespace PrenominaApi.Services.Prenomina
                     DATEDIFF(MINUTE, ws.start_time, eci.check_in) AS MinsLate,
                     checkout.CheckOut
                 FROM employee_check_ins AS eci
+                INNER JOIN Llaves AS k
+                    ON k.codigo = eci.employee_code
+                    AND k.empresa = @company
                 CROSS APPLY (
-                    SELECT TOP 1 *
-                    FROM work_schedule AS ws
-                    WHERE ws.company = @company
-                    ORDER BY ABS(DATEDIFF(MINUTE, ws.start_time, eci.check_in))
+                    SELECT TOP 1 ws_inner.start_time
+                    FROM (
+                        SELECT
+                            ews.start_time,
+                            1 AS priority,
+                            ews.effective_from
+                        FROM employee_work_schedule_assignment AS ewsa
+                        INNER JOIN work_schedule AS ews
+                            ON ews.id = ewsa.work_schedule_id
+                        WHERE ewsa.employee_code = eci.employee_code
+                          AND ewsa.company_id = @company
+                          AND ewsa.effective_from <= eci.[date]
+                          AND (ewsa.effective_to IS NULL OR ewsa.effective_to >= eci.[date])
+                          AND ewsa.deleted_at IS NULL
+
+                        UNION ALL
+
+                        SELECT
+                            aws.start_time,
+                            2 AS priority,
+                            CAST('1900-01-01' AS DATE) AS effective_from
+                        FROM activity_work_schedule_configs AS awsc
+                        INNER JOIN work_schedule AS aws
+                            ON aws.id = awsc.work_schedule_id
+                        WHERE awsc.activity_id = k.ocupacion
+                          AND awsc.company_id = @company
+                    ) AS ws_inner
+                    ORDER BY ws_inner.priority, ws_inner.effective_from DESC
                 ) AS ws
                 OUTER APPLY (
                     SELECT MAX(ec2.check_in) AS CheckOut

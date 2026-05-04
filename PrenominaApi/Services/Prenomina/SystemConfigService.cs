@@ -259,6 +259,92 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
 
+        public bool ExecuteProcess(EditSignatures editSignatures)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            SysConfigReports configResult = new SysConfigReports();
+            configResult.ConfigSignatures.Signatures = editSignatures.Signatures.Take(4).ToList();
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configResult = parser;
+                    configResult.ConfigSignatures ??= new ConfigSignatures();
+                    configResult.ConfigSignatures.Signatures = editSignatures.Signatures.Take(4).ToList();
+                }
+
+                findObject.Data = JsonConvert.SerializeObject(configResult);
+
+                _repository.Update(findObject);
+                _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
+            }
+
+            return true;
+        }
+
+        public bool ExecuteProcess(EditNameFormat editNameFormat)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            SysConfigReports configResult = new SysConfigReports();
+            configResult.ConfigNameFormat.Order = editNameFormat.Order;
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configResult = parser;
+                    configResult.ConfigNameFormat ??= new ConfigNameFormat();
+                    configResult.ConfigNameFormat.Order = editNameFormat.Order;
+                }
+
+                findObject.Data = JsonConvert.SerializeObject(configResult);
+
+                _repository.Update(findObject);
+                _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
+            }
+
+            return true;
+        }
+
+        public bool ExecuteProcess(EditCompactPdfOptions editCompactPdfOptions)
+        {
+            var findObject = _repository.GetById(SysConfig.ConfigReports);
+
+            SysConfigReports configResult = new SysConfigReports();
+            configResult.ConfigAttendanceReport.CompactFontSize = editCompactPdfOptions.CompactFontSize;
+            configResult.ConfigAttendanceReport.ShowDayInitial = editCompactPdfOptions.ShowDayInitial;
+
+            if (findObject != null)
+            {
+                var parser = JsonConvert.DeserializeObject<SysConfigReports>(findObject.Data);
+
+                if (parser != null)
+                {
+                    configResult = parser;
+                    configResult.ConfigAttendanceReport ??= new ConfigAttendanceReport();
+                    configResult.ConfigAttendanceReport.CompactFontSize = editCompactPdfOptions.CompactFontSize;
+                    configResult.ConfigAttendanceReport.ShowDayInitial = editCompactPdfOptions.ShowDayInitial;
+                }
+
+                findObject.Data = JsonConvert.SerializeObject(configResult);
+
+                _repository.Update(findObject);
+                _repository.Save();
+                _cacheService.Remove(CacheKeys.SystemConfig);
+            }
+
+            return true;
+        }
+
         public bool ExecuteProcess(EditYearSistem editYear)
         {
             var findObject = _repository.GetById(SysConfig.ConfigYear);

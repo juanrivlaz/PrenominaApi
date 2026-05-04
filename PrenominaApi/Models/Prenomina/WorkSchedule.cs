@@ -28,6 +28,9 @@ namespace PrenominaApi.Models.Prenomina
         public required Decimal WorkHours { get; set; }
         [Column("is_night_shift")]
         public required bool IsNightShift { get; set; } = false;
+        // Bitmap de días laborables. Bit 0 = Lunes ... Bit 6 = Domingo. 127 (0b1111111) = todos los días.
+        [Column("work_days")]
+        public int WorkDays { get; set; } = 127;
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         [Column("updated_at")]

@@ -38,16 +38,19 @@ namespace PrenominaApi.Middlewares
             context.Response.StatusCode = statusCode;
 
             // Crear respuesta segura
+            var safeDetail = IsBusinessException(ex) ? ex.Message : userMessage;
             var response = new ProblemDetails
             {
                 Status = statusCode,
                 Title = GetSafeTitle(statusCode),
                 // Solo incluir el mensaje detallado si es un error de negocio conocido
-                Detail = IsBusinessException(ex) ? ex.Message : userMessage,
+                Detail = safeDetail,
                 Instance = context.Request.Path,
                 Extensions =
                 {
-                    ["traceId"] = context.TraceIdentifier
+                    ["traceId"] = context.TraceIdentifier,
+                    // Alias para que clientes que esperan err.error.message lo encuentren
+                    ["message"] = safeDetail
                 }
             };
 
@@ -132,6 +135,7 @@ namespace PrenominaApi.Middlewares
             var safeMessagePrefixes = new[]
             {
                 "El código de incidencia",
+                "Incidencia excluida",
                 "No se encontró",
                 "Ya existe",
                 "No es posible",

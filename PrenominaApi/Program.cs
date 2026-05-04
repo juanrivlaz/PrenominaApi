@@ -167,6 +167,9 @@ builder.Services.AddScoped<BioTimeSyncService>();
 builder.Services.AddScoped<WorkScheduleService>();
 builder.Services.AddScoped<EmployeeScheduleResolver>();
 
+// Register Document service
+builder.Services.AddScoped<DocumentService>();
+
 // Register Jobs
 builder.Services.AddHostedService<AttendaceJob>();
 builder.Services.AddHostedService<ClockJob>();

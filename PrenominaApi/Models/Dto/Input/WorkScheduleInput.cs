@@ -21,5 +21,8 @@ namespace PrenominaApi.Models.Dto.Input
 
         [Required]
         public bool IsNightShift { get; set; } = false;
+
+        // Bitmap de días laborables. Bit 0 = Lunes ... Bit 6 = Domingo.
+        public int WorkDays { get; set; } = 127;
     }
 }

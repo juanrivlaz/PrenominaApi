@@ -263,6 +263,60 @@ namespace PrenominaApi.Services.Prenomina
             return find;
         }
 
+        public bool ExecuteProcess(EditPeriod editPeriod)
+        {
+            if (string.IsNullOrEmpty(editPeriod.Id))
+            {
+                throw new BadHttpRequestException("El Id del periodo es requerido");
+            }
+
+            var period = _repository.GetById(Guid.Parse(editPeriod.Id));
+            if (period == null)
+            {
+                throw new BadHttpRequestException("El periodo no existe");
+            }
+
+            if (editPeriod.StartDate > editPeriod.ClosingDate)
+            {
+                throw new BadHttpRequestException("La fecha de inicio no puede ser mayor a la fecha de cierre");
+            }
+
+            if (editPeriod.StartAdminDate > editPeriod.ClosingAdminDate)
+            {
+                throw new BadHttpRequestException("La fecha de inicio admin no puede ser mayor a la fecha de cierre admin");
+            }
+
+            // Validar que no se solape con otros periodos del mismo tipo y empresa
+            var overlap = _repository.GetByFilter(p =>
+                p.Id != period.Id &&
+                p.Company == period.Company &&
+                p.TypePayroll == period.TypePayroll &&
+                p.Year == period.Year &&
+                p.StartDate <= editPeriod.ClosingDate &&
+                p.ClosingDate >= editPeriod.StartDate
+            ).FirstOrDefault();
+
+            if (overlap != null)
+            {
+                throw new BadHttpRequestException(
+                    $"Las fechas se solapan con el periodo {overlap.NumPeriod} ({overlap.StartDate:dd/MM/yyyy} - {overlap.ClosingDate:dd/MM/yyyy})");
+            }
+
+            period.StartDate = editPeriod.StartDate;
+            period.ClosingDate = editPeriod.ClosingDate;
+            period.DatePayment = editPeriod.DatePayment;
+            period.StartAdminDate = editPeriod.StartAdminDate;
+            period.ClosingAdminDate = editPeriod.ClosingAdminDate;
+            period.TotalDays = (editPeriod.ClosingDate.ToDateTime(TimeOnly.MinValue) - editPeriod.StartDate.ToDateTime(TimeOnly.MinValue)).Days + 1;
+            period.UpdatedAt = DateTime.UtcNow;
+
+            _repository.Update(period);
+            _repository.Save();
+            _cacheService.RemoveByPrefix("periods_");
+
+            return true;
+        }
+
         public bool ExecuteProcess(ChangePeriodActive changePeriodActive)
         {
             var period = _repository.GetById(Guid.Parse(changePeriodActive.PeriodId));

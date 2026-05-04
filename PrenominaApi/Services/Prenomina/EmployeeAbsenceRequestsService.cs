@@ -125,7 +125,7 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
 
-        public byte[] ExecuteProcess(DownloadRequest downloadRequest)
+        public AbsenceRequestPdf ExecuteProcess(DownloadRequest downloadRequest)
         {
             if (string.IsNullOrEmpty(downloadRequest.Id))
             {
@@ -157,21 +157,31 @@ namespace PrenominaApi.Services.Prenomina
             var keys = keyEmployee.Where(k => k.Company == company.Id && (int)k.Codigo == item.EmployeeCode).SingleOrDefault();
 
             var days = (item.EndDate.ToDateTime(TimeOnly.MinValue) - item.StartDate.ToDateTime(TimeOnly.MinValue)).Days + 1;
+            var returnDate = item.EndDate.AddDays(1);
+            var employeeFullName = $"{keys?.Employee.Name ?? string.Empty} {keys?.Employee.LastName ?? string.Empty} {keys?.Employee.MLastName ?? string.Empty}".Trim();
 
-            return _permissionPdfService.Generate(
-                company.Name, 
-                $"{keys?.Employee.Name ?? string.Empty} {keys?.Employee.LastName ?? string.Empty} {keys?.Employee.MLastName ?? string.Empty}",
-                $"{item.EmployeeCode}", 
+            var bytes = _permissionPdfService.Generate(
+                company.Name,
+                employeeFullName,
+                $"{item.EmployeeCode}",
                 $"{keys?.Tabulator.Activity}",
                 _globalPropertyService.TypeTenant == TypeTenant.Department ? keys?.CenterItem?.DepartmentName ?? string.Empty :
-                keys?.SupervisorItem?.Name ?? string.Empty, 
+                keys?.SupervisorItem?.Name ?? string.Empty,
                 item.CreatedAt.ToString("dd/MM/yyyy"),
-                item.IncidentCodeItem?.Label ?? string.Empty, 
-                item.Notes ?? string.Empty, 
-                item.StartDate.ToString("dd/MM/yyyy"), 
-                item.EndDate.ToString("dd/MM/yyyy"), 
+                item.IncidentCodeItem?.Label ?? string.Empty,
+                item.Notes ?? string.Empty,
+                item.StartDate.ToString("dd/MM/yyyy"),
+                item.EndDate.ToString("dd/MM/yyyy"),
+                returnDate.ToString("dd/MM/yyyy"),
                 days.ToString()
             );
+
+            // Sanitize filename: replace spaces and slashes
+            var safeName = string.IsNullOrWhiteSpace(employeeFullName) ? $"Empleado_{item.EmployeeCode}" : employeeFullName.Replace(' ', '_');
+            var safeDate = item.StartDate.ToString("yyyy-MM-dd");
+            var fileName = $"Solicitud_{safeName}_{safeDate}.pdf";
+
+            return new AbsenceRequestPdf { Bytes = bytes, FileName = fileName };
         }
     }
 }

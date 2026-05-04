@@ -122,6 +122,24 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPut("{id}")]
+        public ActionResult<bool> Update(string id, [FromBody] EditPeriod editPeriod)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+
+            editPeriod.Id = id;
+            editPeriod.CompanyId = companyId;
+
+            var result = _service.ExecuteProcess<EditPeriod, bool>(editPeriod);
+            return Ok(result);
+        }
+
         [HttpPatch("change-active")]
         public ActionResult<bool> ChangeActive([FromBody] ChangePeriodActive changePeriodActive)
         {

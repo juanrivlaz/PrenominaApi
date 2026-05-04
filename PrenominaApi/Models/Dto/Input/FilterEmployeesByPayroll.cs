@@ -5,5 +5,6 @@
         public int TypeNom { get; set; }
         public int CompanyId { get; set; }
         public string? Tenant { get; set; }
+        public int? NumPeriod { get; set; }
     }
 }

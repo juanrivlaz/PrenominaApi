@@ -30,7 +30,8 @@ namespace PrenominaApi.Services.Prenomina
                     BreakStart = w.BreakStart,
                     BreakEnd = w.BreakEnd,
                     WorkHours = w.WorkHours,
-                    IsNightShift = w.IsNightShift
+                    IsNightShift = w.IsNightShift,
+                    WorkDays = w.WorkDays
                 })
                 .ToList();
         }
@@ -49,7 +50,8 @@ namespace PrenominaApi.Services.Prenomina
                 BreakStart = w.BreakStart,
                 BreakEnd = w.BreakEnd,
                 WorkHours = w.WorkHours,
-                IsNightShift = w.IsNightShift
+                IsNightShift = w.IsNightShift,
+                WorkDays = w.WorkDays
             };
         }
 
@@ -64,7 +66,8 @@ namespace PrenominaApi.Services.Prenomina
                 BreakStart = dto.BreakStart,
                 BreakEnd = dto.BreakEnd,
                 WorkHours = dto.WorkHours,
-                IsNightShift = dto.IsNightShift
+                IsNightShift = dto.IsNightShift,
+                WorkDays = dto.WorkDays
             };
 
             _context.workSchedules.Add(entity);
@@ -79,7 +82,8 @@ namespace PrenominaApi.Services.Prenomina
                 BreakStart = entity.BreakStart,
                 BreakEnd = entity.BreakEnd,
                 WorkHours = entity.WorkHours,
-                IsNightShift = entity.IsNightShift
+                IsNightShift = entity.IsNightShift,
+                WorkDays = entity.WorkDays
             };
         }
 
@@ -95,6 +99,7 @@ namespace PrenominaApi.Services.Prenomina
             entity.BreakEnd = dto.BreakEnd;
             entity.WorkHours = dto.WorkHours;
             entity.IsNightShift = dto.IsNightShift;
+            entity.WorkDays = dto.WorkDays;
             entity.UpdatedAt = DateTime.UtcNow;
 
             _context.SaveChanges();

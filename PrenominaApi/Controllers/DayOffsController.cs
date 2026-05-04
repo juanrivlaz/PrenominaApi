@@ -274,6 +274,13 @@ namespace PrenominaApi.Controllers
                 throw new UnauthorizedAccessException("Unauthorized");
             }
 
+            // Solo admin (sudo) puede sincronizar incapacidades/vacaciones.
+            var userDetails = HttpContext.Items["UserDetails"] as PrenominaApi.Models.Dto.Output.UserDetails;
+            if (userDetails?.role?.Code != PrenominaApi.Models.Prenomina.Enums.RoleCode.Sudo)
+            {
+                throw new UnauthorizedAccessException("Solo el administrador puede ejecutar la sincronización.");
+            }
+
             syncIncapacity.CompanyId = companyId;
             syncIncapacity.UserId = userId;
 

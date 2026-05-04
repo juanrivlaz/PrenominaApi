@@ -298,11 +298,24 @@ namespace PrenominaApi.Services
                         }
                     }
 
+                    // Descanso automático: si no hay incidencia ni checadas y el día no es laborable
+                    // según el horario asignado (WorkDays bitmap), marcar como Descanso ('D').
+                    string finalIncidentCode = defaultIncident?.IncidentCode ?? "N/A";
+                    string finalIncidentLabel = defaultIncident?.Label ?? "";
+                    if (defaultIncident == null
+                        && employeeSchedule != null
+                        && (dayCheckins == null || dayCheckins.Count == 0)
+                        && !IsWorkDay(date, employeeSchedule.WorkDays))
+                    {
+                        finalIncidentCode = "D";
+                        finalIncidentLabel = "Descanso";
+                    }
+
                     employeeAttendances.Add(new AttendanceOutput
                     {
                         Date = date,
-                        IncidentCode = defaultIncident?.IncidentCode ?? "N/A",
-                        IncidentCodeLabel = defaultIncident?.Label ?? "",
+                        IncidentCode = finalIncidentCode,
+                        IncidentCodeLabel = finalIncidentLabel,
                         TypeNom = dayCheckins?.FirstOrDefault()?.TypeNom ?? 0,
                         CheckEntryId = checkEntry?.Id,
                         CheckEntry = checkEntry?.CheckIn.ToString("HH:mm:ss"),
@@ -455,50 +468,71 @@ namespace PrenominaApi.Services
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
             }
 
-            // Obtener códigos de incidencia adicionales con operación
+            // Obtener códigos de incidencia adicionales (con o sin operación).
+            // Aceptamos también los que no tienen operación para que aparezcan en pagos adicionales
+            // como solicitó el cliente: marcar el concepto como adicional debe ser suficiente.
             var incidentCodes = _incidentCodeRepository.GetContextEntity()
                 .AsNoTracking()
-                .Where(ic => ic.IsAdditional && ic.WithOperation)
+                .Where(ic => ic.IsAdditional)
                 .Select(ic => ic.Code)
                 .ToHashSet();
 
-            // Query optimizada de incidentes
+            // Query optimizada de incidentes (incluye los que no tienen metadata para que aparezcan
+            // las incidencias adicionales sin operación con el importe capturado tal cual).
             var assistanceIncidents = _assistanceIncident.GetContextEntity()
                 .AsNoTracking()
                 .Where(ai => employeeCodes.Contains(ai.EmployeeCode) &&
                              ai.CompanyId == getAdditionalPay.Company &&
                              ai.Date >= periodDates.StartDate &&
                              ai.Date <= periodDates.ClosingDate &&
-                             incidentCodes.Contains(ai.IncidentCode) &&
-                             ai.MetaIncidentCodeJson != null)
+                             incidentCodes.Contains(ai.IncidentCode))
                 .Include(ai => ai.ItemIncidentCode)
                     .ThenInclude(ic => ic!.IncidentCodeMetadata)
                 .ToList();
 
             // Obtener empleados en una sola query
+            var startDateTimeAdditional = periodDates.StartDate.ToDateTime(TimeOnly.MinValue);
             var employeesDict = _employeeRepository.GetContextEntity()
                 .AsNoTracking()
                 .Where(item => employeeCodes.Contains(item.Codigo) &&
                                item.Company == getAdditionalPay.Company &&
-                               item.Active == 'S')
+                               item.Active == 'S' &&
+                               (item.LastMovement != 'B' || item.LastMovementDate >= startDateTimeAdditional))
                 .ToDictionary(e => (e.Codigo, e.Company));
 
             return assistanceIncidents.Select(incident =>
             {
-                var columnForOperation = incident.ItemIncidentCode?.IncidentCodeMetadata!.ColumnForOperation;
-
                 if (!employeesDict.TryGetValue((incident.EmployeeCode, incident.CompanyId), out var employee))
                 {
                     return null;
                 }
 
-                var baseValue = columnForOperation == ColumnForOperation.Salary
-                    ? employee.Salary
-                    : incident.MetaIncidentCode!.BaseValue;
-                var operationValue = incident.MetaIncidentCode!.OperationValue;
+                // Si el concepto no tiene configuración (sin operación), usamos defaults seguros
+                // y mostramos el importe capturado tal cual.
+                var meta = incident.ItemIncidentCode?.IncidentCodeMetadata;
+                var hasMeta = meta != null;
+                var columnForOperation = hasMeta ? meta!.ColumnForOperation : ColumnForOperation.Custom;
+
+                decimal baseValue;
+                decimal operationValue = 0;
+                MathOperation mathOperation = MathOperation.Addition;
+
+                if (incident.MetaIncidentCode != null)
+                {
+                    baseValue = columnForOperation == ColumnForOperation.Salary
+                        ? employee.Salary
+                        : incident.MetaIncidentCode.BaseValue;
+                    operationValue = incident.MetaIncidentCode.OperationValue;
+                    mathOperation = hasMeta ? meta!.MathOperation : MathOperation.Addition;
+                }
+                else
+                {
+                    // Sin metadata: usamos el salario si la columna es Salary, o 0 (importe libre).
+                    baseValue = columnForOperation == ColumnForOperation.Salary ? employee.Salary : 0m;
+                }
 
                 var (total, operatorSymbol, operatorText) = CalculateOperation(
-                    incident.ItemIncidentCode!.IncidentCodeMetadata!.MathOperation,
+                    mathOperation,
                     baseValue,
                     operationValue
                 );
@@ -522,15 +556,30 @@ namespace PrenominaApi.Services
             }).Where(x => x != null).Cast<AdditionalPay>();
         }
 
+        // Verifica si una fecha es laborable según el bitmap de WorkDays.
+        // Bit 0 = Lunes ... Bit 6 = Domingo. WorkDays = 127 (0b1111111) = todos los días laborables.
+        private static bool IsWorkDay(DateOnly date, int workDays)
+        {
+            if (workDays <= 0) return true; // Sin configuración explícita: todos laborables
+            int bitIndex = ((int)date.DayOfWeek + 6) % 7; // DayOfWeek: Sun=0..Sat=6 → Lun=0..Dom=6
+            return (workDays & (1 << bitIndex)) != 0;
+        }
+
         private static (decimal total, string symbol, string text) CalculateOperation(
             MathOperation operation, decimal baseValue, decimal operationValue)
         {
+            // Si no hay valor de operador (0), no se aplica operación: regresa baseValue tal cual.
+            if (operationValue == 0)
+            {
+                return (baseValue, "", "");
+            }
+
             return operation switch
             {
-                MathOperation.Addition => (baseValue + operationValue, "add", "Suma"),
-                MathOperation.Subtraction => (baseValue - operationValue, "remove", "Resta"),
-                MathOperation.Multiplication => (baseValue * operationValue, "close", "Multiplicación"),
-                MathOperation.Division when operationValue != 0 => (baseValue / operationValue, "open_size_2", "División"),
+                MathOperation.Addition => (baseValue + operationValue, "+", "Suma"),
+                MathOperation.Subtraction => (baseValue - operationValue, "−", "Resta"),
+                MathOperation.Multiplication => (baseValue * operationValue, "×", "Multiplicación"),
+                MathOperation.Division => (baseValue / operationValue, "÷", "División"),
                 _ => (baseValue, "", "")
             };
         }
@@ -767,13 +816,15 @@ namespace PrenominaApi.Services
                     return _pdfService.GenerateAttendance(employeeAttendancesResult, company?.Name ?? "", tenantName,
                         $"{period.StartDate} - {period.ClosingDate}", listDates,
                         $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
-                        $"{payroll.TypeNom} - {payroll.Label}");
+                        $"{payroll.TypeNom} - {payroll.Label}",
+                        findObject);
                 }
 
                 return _attendancePdfService.Generate(employeeAttendancesResult, company?.Name ?? "", tenantName,
                     $"{period.StartDate} - {period.ClosingDate}", listDates,
                     $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
-                    $"{payroll.TypeNom} - {payroll.Label}");
+                    $"{payroll.TypeNom} - {payroll.Label}",
+                    findObject);
             }
 
             return GenerateAttendanceExcel(employeeAttendancesResult, period, listDates);

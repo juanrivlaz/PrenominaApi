@@ -119,6 +119,38 @@ namespace PrenominaApi.Controllers
             );
         }
 
+        [HttpGet("additional-pay/template")]
+        public IActionResult DownloadAdditionalPayTemplate()
+        {
+            using var workbook = new ClosedXML.Excel.XLWorkbook();
+            var ws = workbook.Worksheets.Add("Pagos Adicionales");
+
+            // Headers
+            var headers = new[] { "EmployeeCode", "IncidentCode", "Date (dd/MM/yyyy)", "BaseValue", "OperationValue", "Notes" };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(1, i + 1).Value = headers[i];
+                ws.Cell(1, i + 1).Style.Font.Bold = true;
+                ws.Cell(1, i + 1).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.LightGray;
+            }
+
+            // Fila ejemplo
+            ws.Cell(2, 1).Value = 93;
+            ws.Cell(2, 2).Value = "BONO";
+            ws.Cell(2, 3).Value = DateTime.Now.ToString("dd/MM/yyyy");
+            ws.Cell(2, 4).Value = 0;
+            ws.Cell(2, 5).Value = 0;
+            ws.Cell(2, 6).Value = "Ejemplo: bono de productividad";
+
+            ws.Columns().AdjustToContents();
+
+            using var ms = new MemoryStream();
+            workbook.SaveAs(ms);
+            return File(ms.ToArray(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "plantilla_pagos_adicionales.xlsx");
+        }
+
         [HttpPatch("apply-incident")]
         public ActionResult<AssistanceIncident> ApplyIncident([FromBody] ApplyIncident applyIncident)
         {

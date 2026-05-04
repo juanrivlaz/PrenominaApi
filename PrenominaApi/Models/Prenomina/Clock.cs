@@ -18,6 +18,8 @@ namespace PrenominaApi.Models.Prenomina
         public int? Port { get; set; } = 4370;
         [Column("label")]
         public required string Label { get; set; }
+        [Column("last_sync_at")]
+        public DateTime? LastSyncAt { get; set; } = null;
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         [Column("updated_at")]

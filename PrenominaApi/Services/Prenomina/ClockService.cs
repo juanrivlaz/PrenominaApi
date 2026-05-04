@@ -247,6 +247,11 @@ namespace PrenominaApi.Services.Prenomina
                 }
             }
 
+            // Marcar la última sincronización del reloj.
+            clock.LastSyncAt = DateTime.UtcNow;
+            _repository.Update(clock);
+            _repository.Save();
+
             return true;
         }
 
@@ -418,9 +423,14 @@ namespace PrenominaApi.Services.Prenomina
 
                     throw;
                 }
-                
+
             }
-            
+
+            // Marcar la última sincronización del reloj.
+            clock.LastSyncAt = DateTime.UtcNow;
+            _repository.Update(clock);
+            _repository.Save();
+
             return true;
         }
 

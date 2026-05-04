@@ -6,6 +6,7 @@ using iText.Layout;
 using iText.Layout.Borders;
 using iText.Layout.Element;
 using iText.Layout.Properties;
+using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Services.Utilities.Attendance;
@@ -22,16 +23,27 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             string period,
             List<DateOnly> listDates,
             string rfcInfo,
-            string typeNom
+            string typeNom,
+            SysConfigReports? sysConfig = null
         )
         {
             using MemoryStream memoryStream = new MemoryStream();
             using PdfWriter writer = new PdfWriter(memoryStream);
             using PdfDocument pdf = new PdfDocument(writer);
 
+            sysConfig ??= new SysConfigReports();
+            int fontSize = sysConfig.ConfigAttendanceReport?.CompactFontSize > 0 ? sysConfig.ConfigAttendanceReport.CompactFontSize : 6;
+            bool showDayInitial = sysConfig.ConfigAttendanceReport?.ShowDayInitial ?? false;
+            NameOrder nameOrder = sysConfig.ConfigNameFormat?.Order ?? NameOrder.FirstNameFirst;
+            var signatures = (sysConfig.ConfigSignatures?.Signatures ?? new List<SignatureItem>())
+                .Where(s => !string.IsNullOrWhiteSpace(s.Name) || !string.IsNullOrWhiteSpace(s.Position))
+                .Take(4)
+                .ToList();
+
+            var incidentsApply = SysConfig.IncidentApplyToAttendance;
             List<OnlyIncidentCodeLabel> listIncidents = employeeAttendances
             .Where(e => e.Attendances != null && e.Attendances.Any()).SelectMany(e => (e.Attendances ?? Enumerable.Empty<AttendanceOutput>())
-            .Where(a => a.IncidentCode != "--:--")
+            .Where(a => incidentsApply.Contains(a.IncidentCode))
             .Select(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }))
             .GroupBy(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }).Select(g => g.First()).ToList();
 
@@ -41,15 +53,23 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
 
             foreach (var employee in employeeAttendances)
             {
+                var displayName = NameFormatter.Format(employee.Name, employee.LastName, employee.MLastName, nameOrder);
                 var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
                 table.AddHeaderCell(AddCellToHeadToAttendance(
-                    $"Cod. {employee.Codigo} | {employee.Name} {employee.LastName} {employee.MLastName} | {employee.Activity}", listDates.Count, TextAlignment.LEFT, 5, true, true, true));
-                table.AddHeaderCell(AddCellToHeadToAttendance("Observación", 1, TextAlignment.CENTER, 1, false, true, true, false));
+                    $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", fontSize, listDates.Count, TextAlignment.LEFT, 5, true, true, true));
+                table.AddHeaderCell(AddCellToHeadToAttendance("Observación", fontSize, 1, TextAlignment.CENTER, 1, false, true, true, false));
 
                 int indexDate = 1;
                 foreach (var date in listDates)
                 {
-                    table.AddHeaderCell(AddCellToHeadDateToAttendance(date.ToString("dd/MM/yy"), 1, TextAlignment.CENTER, 1, indexDate == 1, false, indexDate == listDates.Count));
+                    string dateLabel = date.ToString("dd/MM/yy");
+                    if (showDayInitial)
+                    {
+                        string day = date.ToString("ddd", new CultureInfo("es-ES")).TrimEnd('.').ToUpper();
+                        string initial = day.Length > 0 ? day.Substring(0, 1) : string.Empty;
+                        dateLabel = $"{initial} {dateLabel}";
+                    }
+                    table.AddHeaderCell(AddCellToHeadDateToAttendance(dateLabel, fontSize, 1, TextAlignment.CENTER, 1, indexDate == 1, false, indexDate == listDates.Count));
                     indexDate++;
 
                     //entry
@@ -68,21 +88,37 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
                         checkOut = "";
                     }
 
-                    table.AddCell(AddCellToAttendace($"{checkEntry} {divider} {checkOut}", true));
+                    table.AddCell(AddCellToAttendace($"{checkEntry} {divider} {checkOut}", fontSize, true));
                 }
                 //header observation
-                table.AddHeaderCell(AddCellToHeadToAttendance("", 1, TextAlignment.CENTER, 1, false, false, true, false));
-                table.AddCell(AddCellToAttendace("", true));
+                table.AddHeaderCell(AddCellToHeadToAttendance("", fontSize, 1, TextAlignment.CENTER, 1, false, false, true, false));
+                table.AddCell(AddCellToAttendace("", fontSize, true));
 
                 document.Add(table);
             }
 
             document.Add(new Paragraph("\n").SetMarginTop(5));
-            var tableSignature = new Table(2).UseAllAvailableWidth();
-            tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
-            tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
-            tableSignature.AddCell(AddCellToSignature("JEFE DE DEPARTAMENTO"));
-            tableSignature.AddCell(AddCellToSignature("DIRECCIÓN RECURSOS HUMANOS"));
+            int signatureCount = signatures.Count > 0 ? signatures.Count : 2;
+            var tableSignature = new Table(signatureCount).UseAllAvailableWidth();
+
+            for (int i = 0; i < signatureCount; i++)
+            {
+                tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
+            }
+
+            if (signatures.Count > 0)
+            {
+                foreach (var sig in signatures)
+                {
+                    var label = string.IsNullOrWhiteSpace(sig.Position) ? sig.Name : $"{sig.Name}\n{sig.Position}";
+                    tableSignature.AddCell(AddCellToSignature(label));
+                }
+            }
+            else
+            {
+                tableSignature.AddCell(AddCellToSignature("JEFE DE DEPARTAMENTO"));
+                tableSignature.AddCell(AddCellToSignature("DIRECCIÓN RECURSOS HUMANOS"));
+            }
             document.Add(tableSignature);
 
             document.Close();
@@ -90,10 +126,10 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             return memoryStream.ToArray();
         }
 
-        private Cell AddCellToHeadToAttendance(string value, int colspan = 1, TextAlignment textAlignment = TextAlignment.CENTER, int padding = 1, bool borderLeft = false, bool borderTop = false, bool borderRight = false, bool borderBottom = false)
+        private Cell AddCellToHeadToAttendance(string value, int fontSize, int colspan = 1, TextAlignment textAlignment = TextAlignment.CENTER, int padding = 1, bool borderLeft = false, bool borderTop = false, bool borderRight = false, bool borderBottom = false)
         {
             return new Cell(1, colspan).Add(
-                new Paragraph(value).SetFontSize(6).SetTextAlignment(textAlignment).SetFixedLeading(6)
+                new Paragraph(value).SetFontSize(fontSize).SetTextAlignment(textAlignment).SetFixedLeading(fontSize)
             ).SetPadding(padding)
             .SetBorderBottom(borderBottom ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER)
             .SetBorderLeft(borderLeft ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER)
@@ -101,10 +137,10 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             .SetBorderRight(borderRight ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER);
         }
 
-        private Cell AddCellToHeadDateToAttendance(string value, int colspan = 1, TextAlignment textAlignment = TextAlignment.CENTER, int padding = 1, bool borderLeft = false, bool borderTop = false, bool borderRight = false, bool borderBottom = false)
+        private Cell AddCellToHeadDateToAttendance(string value, int fontSize, int colspan = 1, TextAlignment textAlignment = TextAlignment.CENTER, int padding = 1, bool borderLeft = false, bool borderTop = false, bool borderRight = false, bool borderBottom = false)
         {
             return new Cell(1, colspan).Add(
-                new Paragraph(value).SetFontSize(6).SetTextAlignment(textAlignment).SetMaxWidth(80)
+                new Paragraph(value).SetFontSize(fontSize).SetTextAlignment(textAlignment).SetMaxWidth(80)
             ).SetPadding(padding)
             .SetBorderBottom(borderBottom ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER)
             .SetBorderLeft(borderLeft ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER)
@@ -112,10 +148,10 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             .SetBorderRight(borderRight ? new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f) : Border.NO_BORDER);
         }
 
-        private Cell AddCellToAttendace(string value, bool withBorderBottom = false)
+        private Cell AddCellToAttendace(string value, int fontSize, bool withBorderBottom = false)
         {
             Cell styledCell = new Cell().SetPadding(1);
-            styledCell.Add(new Paragraph(value).SetFontSize(6).SetFontColor(ColorConstants.BLACK).SetTextAlignment(TextAlignment.CENTER).SetMaxWidth(80)).SetPadding(1)
+            styledCell.Add(new Paragraph(value).SetFontSize(fontSize).SetFontColor(ColorConstants.BLACK).SetTextAlignment(TextAlignment.CENTER).SetMaxWidth(80)).SetPadding(1)
             .SetBorderLeft(new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f))
             .SetBorderRight(new SolidBorder(new DeviceRgb(200, 200, 200), 0.5f))
             .SetBorderTop(Border.NO_BORDER)

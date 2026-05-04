@@ -80,5 +80,26 @@ namespace PrenominaApi.Controllers
             var result = _service.ExecuteProcess<GetConfigReport, SysConfigReports>(new GetConfigReport() { });
             return Ok(result);
         }
+
+        [HttpPut("signatures")]
+        public ActionResult<bool> UpdateSignatures([FromBody] EditSignatures editSignatures)
+        {
+            var result = _service.ExecuteProcess<EditSignatures, bool>(editSignatures);
+            return Ok(result);
+        }
+
+        [HttpPut("name-format")]
+        public ActionResult<bool> UpdateNameFormat([FromBody] EditNameFormat editNameFormat)
+        {
+            var result = _service.ExecuteProcess<EditNameFormat, bool>(editNameFormat);
+            return Ok(result);
+        }
+
+        [HttpPut("compact-pdf-options")]
+        public ActionResult<bool> UpdateCompactPdfOptions([FromBody] EditCompactPdfOptions editCompactPdfOptions)
+        {
+            var result = _service.ExecuteProcess<EditCompactPdfOptions, bool>(editCompactPdfOptions);
+            return Ok(result);
+        }
     }
 }

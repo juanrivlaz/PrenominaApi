@@ -40,12 +40,12 @@ namespace PrenominaApi.Controllers
         [HttpGet("{id}/download")]
         public IActionResult Download(string id)
         {
-            var result = _service.ExecuteProcess<DownloadRequest, byte[]>(new DownloadRequest { Id = id });
+            var result = _service.ExecuteProcess<DownloadRequest, AbsenceRequestPdf>(new DownloadRequest { Id = id });
 
             return File(
-                result,
+                result.Bytes,
                 "application/pdf",
-                "Employee_Absence_Request.pdf"
+                result.FileName
             );
         }
     }

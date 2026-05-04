@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -14,7 +15,11 @@ namespace PrenominaApi.Models.Prenomina
         [Column("name")]
         public required string Name { get; set; }
         [Column("path")]
-        public required string Path { get; set; }
+        public string? Path { get; set; }
+        [Column("content")]
+        public string? Content { get; set; }
+        [Column("module")]
+        public DocumentModule Module { get; set; } = DocumentModule.Generic;
         [Column("key_params")]
         public required IEnumerable<string> KeyParams { get; set; }
         [Column("created_at")]

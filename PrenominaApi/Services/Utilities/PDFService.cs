@@ -6,6 +6,7 @@ using iText.Layout;
 using iText.Layout.Borders;
 using iText.Layout.Element;
 using iText.Layout.Properties;
+using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Services.Utilities.PDF;
@@ -147,7 +148,8 @@ namespace PrenominaApi.Services.Utilities
             string period,
             List<DateOnly> listDates,
             string rfcInfo,
-            string typeNom
+            string typeNom,
+            SysConfigReports? sysConfig = null
         ) {
             using (MemoryStream memoryStream = new MemoryStream())
             {
@@ -157,6 +159,13 @@ namespace PrenominaApi.Services.Utilities
 
                     using (PdfDocument pdf = new PdfDocument(writer))
                     {
+                        sysConfig ??= new SysConfigReports();
+                        NameOrder nameOrder = sysConfig.ConfigNameFormat?.Order ?? NameOrder.FirstNameFirst;
+                        var signatures = (sysConfig.ConfigSignatures?.Signatures ?? new List<SignatureItem>())
+                            .Where(s => !string.IsNullOrWhiteSpace(s.Name) || !string.IsNullOrWhiteSpace(s.Position))
+                            .Take(4)
+                            .ToList();
+
                         var incidentsApply = SysConfig.IncidentApplyToAttendance;
                         List<OnlyIncidentCodeLabel> listIncidents = employeeAttendances
                         .Where(e => e.Attendances != null && e.Attendances.Any()).SelectMany(e => (e.Attendances ?? Enumerable.Empty<AttendanceOutput>())
@@ -170,11 +179,11 @@ namespace PrenominaApi.Services.Utilities
 
                         foreach (var employee in employeeAttendances)
                         {
-                            //document.Add(new Paragraph($"Cod. {employee.Codigo} | {employee.Name} {employee.LastName} {employee.MLastName} | {employee.Activity}").SetFontSize(8).SetTextAlignment(TextAlignment.LEFT));
-                            
+                            var displayName = NameFormatter.Format(employee.Name, employee.LastName, employee.MLastName, nameOrder);
+
                             var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
                             table.AddHeaderCell(AddCellToHeadToAttendance(
-                                $"Cod. {employee.Codigo} | {employee.Name} {employee.LastName} {employee.MLastName} | {employee.Activity}", listDates.Count, TextAlignment.LEFT, 10, true, true, true));
+                                $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", listDates.Count, TextAlignment.LEFT, 10, true, true, true));
                             table.AddHeaderCell(AddCellToHeadToAttendance("Observación", 1, TextAlignment.CENTER, 1, false, true, true, false));
 
                             int indexDate = 1;
@@ -205,11 +214,27 @@ namespace PrenominaApi.Services.Utilities
                         }
 
                         document.Add(new Paragraph("\n").SetMarginTop(5));
-                        var tableSignature = new Table(2).UseAllAvailableWidth();
-                        tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
-                        tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
-                        tableSignature.AddCell(AddCellToSignature("JEFE DE DEPARTAMENTO"));
-                        tableSignature.AddCell(AddCellToSignature("DIRECCIÓN RECURSOS HUMANOS"));
+                        int signatureCount = signatures.Count > 0 ? signatures.Count : 2;
+                        var tableSignature = new Table(signatureCount).UseAllAvailableWidth();
+
+                        for (int i = 0; i < signatureCount; i++)
+                        {
+                            tableSignature.AddHeaderCell(AddCellToSignature("______________________________"));
+                        }
+
+                        if (signatures.Count > 0)
+                        {
+                            foreach (var sig in signatures)
+                            {
+                                var label = string.IsNullOrWhiteSpace(sig.Position) ? sig.Name : $"{sig.Name}\n{sig.Position}";
+                                tableSignature.AddCell(AddCellToSignature(label));
+                            }
+                        }
+                        else
+                        {
+                            tableSignature.AddCell(AddCellToSignature("JEFE DE DEPARTAMENTO"));
+                            tableSignature.AddCell(AddCellToSignature("DIRECCIÓN RECURSOS HUMANOS"));
+                        }
                         document.Add(tableSignature);
 
                         document.Close();

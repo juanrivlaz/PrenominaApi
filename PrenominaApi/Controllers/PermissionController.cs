@@ -17,7 +17,19 @@ namespace PrenominaApi.Controllers
         [HttpGet("download")]
         public IActionResult Download()
         {
-            var pdfBytes = _permissionPdfService.Generate("CELACANTO SERVICIOS TURISTICOS S DE RL DE CV", "HUMBERTO HERNANDEZ GOMEZ", "93", "CANTINERO", "CANTINEROS", "25/01/2026", "Permiso Sin Goce", "salida familiar", "25/01/2026", "28/01/2026", "4");
+            var pdfBytes = _permissionPdfService.Generate(
+                "CELACANTO SERVICIOS TURISTICOS S DE RL DE CV",
+                "HUMBERTO HERNANDEZ GOMEZ",
+                "93",
+                "CANTINERO",
+                "CANTINEROS",
+                DateTime.Now.ToString("dd/MM/yyyy"),
+                "Permiso Sin Goce",
+                "salida familiar",
+                "25/01/2026",
+                "28/01/2026",
+                "29/01/2026",
+                "4");
             return File(pdfBytes, "application/pdf", "Reporte_Permisos.pdf");
         }
     }
