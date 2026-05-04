@@ -40,12 +40,19 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
                 .Take(4)
                 .ToList();
 
-            var incidentsApply = SysConfig.IncidentApplyToAttendance;
+            // Lista de incidencias para el encabezado: todas las que aparecen en los registros,
+            // deduplicadas por código. Se ignoran códigos vacíos o placeholder (N/A, "--:--").
             List<OnlyIncidentCodeLabel> listIncidents = employeeAttendances
-            .Where(e => e.Attendances != null && e.Attendances.Any()).SelectMany(e => (e.Attendances ?? Enumerable.Empty<AttendanceOutput>())
-            .Where(a => incidentsApply.Contains(a.IncidentCode))
-            .Select(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }))
-            .GroupBy(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }).Select(g => g.First()).ToList();
+            .Where(e => e.Attendances != null && e.Attendances.Any())
+            .SelectMany(e => (e.Attendances ?? Enumerable.Empty<AttendanceOutput>())
+                .Where(a => !string.IsNullOrWhiteSpace(a.IncidentCode)
+                            && a.IncidentCode != "N/A"
+                            && a.IncidentCode != "--:--")
+                .Select(a => new OnlyIncidentCodeLabel() { IncidentCode = a.IncidentCode, IncidentCodeLabel = a.IncidentCodeLabel }))
+            .GroupBy(a => a.IncidentCode)
+            .Select(g => g.First())
+            .OrderBy(i => i.IncidentCode)
+            .ToList();
 
             Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
             pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo));
