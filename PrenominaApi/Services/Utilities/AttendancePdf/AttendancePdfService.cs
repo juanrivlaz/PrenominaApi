@@ -56,15 +56,8 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             .ToList();
 
             Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
-            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo));
+            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo, logoDataUrl));
             document.SetTopMargin(101);
-
-            // Logo configurado en Apariencia (si existe) — aparece en la primera página.
-            var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: 80f, maxHeight: 40f);
-            if (logoImage != null)
-            {
-                document.Add(logoImage);
-            }
 
             foreach (var employee in employeeAttendances)
             {

@@ -9,11 +9,15 @@ using iText.Layout.Borders;
 using iText.Layout.Element;
 using iText.Layout.Properties;
 using PrenominaApi.Models.Dto.Output;
+using PrenominaApi.Services.Utilities;
 
 namespace PrenominaApi.Services.Utilities.PDF
 {
     public class HeaderAndFooterHandlerAttendace : AbstractPdfDocumentEventHandler
     {
+        private const float LogoSize = 50f;
+        private const float LogoTextGap = 8f;
+
         protected Document doc;
         private PdfFont font;
         private PdfFont fontBold;
@@ -24,6 +28,7 @@ namespace PrenominaApi.Services.Utilities.PDF
         private string typeNom;
         private string period;
         private List<OnlyIncidentCodeLabel> onlyIncidentCodeLabels;
+        private string? logoDataUrl;
 
         public HeaderAndFooterHandlerAttendace(
             Document doc,
@@ -32,7 +37,8 @@ namespace PrenominaApi.Services.Utilities.PDF
             string typeNom,
             string period,
             List<OnlyIncidentCodeLabel> onlyIncidentCodeLabels,
-            string rfcInfo
+            string rfcInfo,
+            string? logoDataUrl = null
         )
         {
             this.doc = doc;
@@ -45,6 +51,7 @@ namespace PrenominaApi.Services.Utilities.PDF
             this.onlyIncidentCodeLabels = onlyIncidentCodeLabels;
             this.rfcInfo = rfcInfo;
             this.typeNom = typeNom;
+            this.logoDataUrl = logoDataUrl;
         }
 
         protected override void OnAcceptedEvent(AbstractPdfDocumentEvent currentEvent)
@@ -94,6 +101,21 @@ namespace PrenominaApi.Services.Utilities.PDF
 
             canvas.Add(tagTable);
 
+            float textLeft = coorLeft;
+            var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: LogoSize, maxHeight: LogoSize);
+            if (logoImage != null)
+            {
+                var logoTable = new Table(1)
+                    .SetWidth(LogoSize)
+                    .SetFixedPosition(coorLeft, coorTop - (LogoSize - 5), LogoSize);
+                logoTable.AddCell(new Cell()
+                    .Add(logoImage)
+                    .SetBorder(Border.NO_BORDER)
+                    .SetPadding(0));
+                canvas.Add(logoTable);
+                textLeft = coorLeft + LogoSize + LogoTextGap;
+            }
+
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .ShowTextAligned("Reporte Tarjeta de Asistencia", coorRight, coorTop, TextAlignment.RIGHT)
@@ -107,41 +129,41 @@ namespace PrenominaApi.Services.Utilities.PDF
             canvas.SetFont(fontBold!)
                 .SetFontSize(10)
                 .SetFontColor(new DeviceRgb(24, 29, 39))
-                .ShowTextAligned(companyName, coorLeft, coorTop - 2, TextAlignment.LEFT)
+                .ShowTextAligned(companyName, textLeft, coorTop - 2, TextAlignment.LEFT)
                 .Close();
 
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .SetFontColor(new DeviceRgb(24, 29, 39))
-                .ShowTextAligned(rfcInfo, coorLeft, coorTop - 13, TextAlignment.LEFT)
+                .ShowTextAligned(rfcInfo, textLeft, coorTop - 13, TextAlignment.LEFT)
                 .Close();
 
             canvas.SetFont(font!)
                 .SetFontSize(9)
                 .SetFontColor(new DeviceRgb(24, 29, 39))
-                .ShowTextAligned(tenantName, coorLeft, coorTop - 28, TextAlignment.LEFT)
+                .ShowTextAligned(tenantName, textLeft, coorTop - 28, TextAlignment.LEFT)
                 .Close();
 
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .SetFontColor(new DeviceRgb(16, 24, 40))
-                .ShowTextAligned("T. Nómina:", coorLeft, coorTop - 46, TextAlignment.LEFT)
+                .ShowTextAligned("T. Nómina:", textLeft, coorTop - 46, TextAlignment.LEFT)
                 .Close();
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .SetFontColor(new DeviceRgb(102, 112, 133))
-                .ShowTextAligned(typeNom, coorLeft + 45, coorTop - 46, TextAlignment.LEFT)
+                .ShowTextAligned(typeNom, textLeft + 45, coorTop - 46, TextAlignment.LEFT)
                 .Close();
 
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .SetFontColor(new DeviceRgb(16, 24, 40))
-                .ShowTextAligned("Periodo:", coorLeft, coorTop - 59, TextAlignment.LEFT)
+                .ShowTextAligned("Periodo:", textLeft, coorTop - 59, TextAlignment.LEFT)
                 .Close();
             canvas.SetFont(font!)
                 .SetFontSize(8)
                 .SetFontColor(new DeviceRgb(102, 112, 133))
-                .ShowTextAligned(period, coorLeft + 45, coorTop - 59, TextAlignment.LEFT)
+                .ShowTextAligned(period, textLeft + 45, coorTop - 59, TextAlignment.LEFT)
                 .Close();
 
             canvas.SetFont(font!)
