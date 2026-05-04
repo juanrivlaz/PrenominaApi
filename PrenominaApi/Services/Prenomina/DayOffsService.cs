@@ -821,7 +821,7 @@ namespace PrenominaApi.Services.Prenomina
 
             foreach (var incident in incidents)
             {
-                if (incident.StartDate == null)
+                if (incident.StartDate == null || incident.Days == null || incident.Days <= 0)
                 {
                     continue;
                 }
@@ -868,7 +868,7 @@ namespace PrenominaApi.Services.Prenomina
 
             foreach (var kvacation in kardexVacation)
             {
-                if (kvacation.StartDate == null)
+                if (kvacation.StartDate == null || kvacation.Days == null || kvacation.Days <= 0)
                 {
                     continue;
                 }

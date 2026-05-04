@@ -32,6 +32,6 @@ namespace PrenominaApi.Models
         [Column("fch_inicio")]
         public DateTime? StartDate { get; set; }
         [Column("dias")]
-        public decimal Days { get; set; }
+        public decimal? Days { get; set; }
     }
 }
