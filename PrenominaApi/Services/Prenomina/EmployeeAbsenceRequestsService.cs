@@ -81,7 +81,7 @@ namespace PrenominaApi.Services.Prenomina
             var firstDate = registerDaysOff.Dates.Min();
             var lastDate = registerDaysOff.Dates.Max();
 
-            var company = _companyRepository.GetById(registerDaysOff.CompanyId);
+            var company = _companyRepository.GetByFilter(c => c.Id == registerDaysOff.CompanyId).FirstOrDefault();
 
             if (company == null)
             {
@@ -147,7 +147,10 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             var keyEmployee = _keyRepository.GetContextEntity().Include(k => k.Tabulator).Include(k => k.CenterItem).Include(k => k.SupervisorItem).Include(k => k.Employee);
-            var company = _companyRepository.GetById(item.CompanyId);
+            // Usamos GetByFilter en lugar de GetById porque _companyRepository.GetById usa Find()
+            // y EF Core falla con "Parameter value 'X' is out of range" al convertir el decimal CompanyId
+            // hacia el tipo SQL del PK.
+            var company = _companyRepository.GetByFilter(c => c.Id == item.CompanyId).FirstOrDefault();
 
             if (company == null)
             {
