@@ -810,6 +810,8 @@ namespace PrenominaApi.Services
             if (downloadAttendance.TypeFileDownload == TypeFileDownload.PDF)
             {
                 var findObject = _sysConfigService.ExecuteProcess<GetConfigReport, SysConfigReports>(new GetConfigReport { });
+                var appearance = _sysConfigService.ExecuteProcess<GetAppearance, SysAppearance>(new GetAppearance());
+                var logo = appearance?.Logo;
 
                 if (findObject.ConfigAttendanceReport.TypeAttendanceReportPdf == TypeAttendanceReportPdf.Standard)
                 {
@@ -817,14 +819,16 @@ namespace PrenominaApi.Services
                         $"{period.StartDate} - {period.ClosingDate}", listDates,
                         $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
                         $"{payroll.TypeNom} - {payroll.Label}",
-                        findObject);
+                        findObject,
+                        logo);
                 }
 
                 return _attendancePdfService.Generate(employeeAttendancesResult, company?.Name ?? "", tenantName,
                     $"{period.StartDate} - {period.ClosingDate}", listDates,
                     $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}",
                     $"{payroll.TypeNom} - {payroll.Label}",
-                    findObject);
+                    findObject,
+                    logo);
             }
 
             return GenerateAttendanceExcel(employeeAttendancesResult, period, listDates);

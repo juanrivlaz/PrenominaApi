@@ -24,7 +24,8 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
             string startDate,
             string endDate,
             string returnDate,
-            string totalDays)
+            string totalDays,
+            string? logoDataUrl = null)
         {
             using MemoryStream memoryStream = new MemoryStream();
             using PdfWriter writer = new PdfWriter(memoryStream);
@@ -43,14 +44,14 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
             RenderCopy(document, font, fontBold,
                 s(company), s(employeeName), s(employeeCode), s(activity), s(department),
                 s(date), s(permissionLabel), s(note), s(startDate), s(endDate), s(returnDate), s(totalDays),
-                "Copia empleado");
+                "Copia empleado", logoDataUrl);
 
             document.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
 
             RenderCopy(document, font, fontBold,
                 s(company), s(employeeName), s(employeeCode), s(activity), s(department),
                 s(date), s(permissionLabel), s(note), s(startDate), s(endDate), s(returnDate), s(totalDays),
-                "Copia empresa");
+                "Copia empresa", logoDataUrl);
 
             document.Close();
             return memoryStream.ToArray();
@@ -72,8 +73,16 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
             string endDate,
             string returnDate,
             string totalDays,
-            string copyLabel)
+            string copyLabel,
+            string? logoDataUrl)
         {
+            // Logo opcional al inicio (si está configurado en Apariencia).
+            var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: 100f, maxHeight: 50f);
+            if (logoImage != null)
+            {
+                document.Add(logoImage);
+            }
+
             // Encabezado de la empresa.
             document.Add(new Paragraph(company)
                 .SetFont(fontBold)

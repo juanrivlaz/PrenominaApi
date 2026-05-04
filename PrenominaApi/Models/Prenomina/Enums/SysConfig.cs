@@ -15,5 +15,6 @@ namespace PrenominaApi.Models.Prenomina.Enums
         public const string ConfigYear = "Year-Operation";
         public const string BioTimeSync = "BioTime-Sync";
         public const string BioTimeCredentials = "BioTime-Credentials";
+        public const string Appearance = "Appearance";
     }
 }

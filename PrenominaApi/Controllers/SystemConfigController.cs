@@ -101,5 +101,22 @@ namespace PrenominaApi.Controllers
             var result = _service.ExecuteProcess<EditCompactPdfOptions, bool>(editCompactPdfOptions);
             return Ok(result);
         }
+
+        // Apariencia (colores y logo). El GET es público para que el frontend pueda cargar
+        // la marca antes del login (logo en pantalla de login, colores, etc.).
+        [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+        [HttpGet("appearance")]
+        public ActionResult<SysAppearance> GetAppearance()
+        {
+            var result = _service.ExecuteProcess<GetAppearance, SysAppearance>(new GetAppearance());
+            return Ok(result);
+        }
+
+        [HttpPut("appearance")]
+        public ActionResult<bool> UpdateAppearance([FromBody] EditAppearance editAppearance)
+        {
+            var result = _service.ExecuteProcess<EditAppearance, bool>(editAppearance);
+            return Ok(result);
+        }
     }
 }

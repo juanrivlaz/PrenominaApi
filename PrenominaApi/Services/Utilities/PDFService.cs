@@ -149,7 +149,8 @@ namespace PrenominaApi.Services.Utilities
             List<DateOnly> listDates,
             string rfcInfo,
             string typeNom,
-            SysConfigReports? sysConfig = null
+            SysConfigReports? sysConfig = null,
+            string? logoDataUrl = null
         ) {
             using (MemoryStream memoryStream = new MemoryStream())
             {
@@ -183,6 +184,13 @@ namespace PrenominaApi.Services.Utilities
                         Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
                         pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new HeaderAndFooterHandlerAttendace(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo));
                         document.SetTopMargin(120);
+
+                        // Logo configurado en Apariencia (si existe) — aparece en la primera página.
+                        var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: 80f, maxHeight: 40f);
+                        if (logoImage != null)
+                        {
+                            document.Add(logoImage);
+                        }
 
                         foreach (var employee in employeeAttendances)
                         {

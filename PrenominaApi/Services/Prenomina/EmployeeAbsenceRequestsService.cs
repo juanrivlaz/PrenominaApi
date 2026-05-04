@@ -18,19 +18,22 @@ namespace PrenominaApi.Services.Prenomina
         public readonly IBaseRepository<Company> _companyRepository;
         private readonly PermissionPdfService _permissionPdfService;
         public readonly GlobalPropertyService _globalPropertyService;
+        private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
 
         public EmployeeAbsenceRequestsService(
             IBaseRepositoryPrenomina<EmployeeAbsenceRequests> repository,
             IBaseRepository<Key> keyRepository,
             IBaseRepository<Company> companyRepository,
             GlobalPropertyService globalPropertyService,
-            PermissionPdfService permissionPdfService
+            PermissionPdfService permissionPdfService,
+            IBaseServicePrenomina<SystemConfig> sysConfigService
         ) : base(repository)
         {
             _keyRepository = keyRepository;
             _companyRepository = companyRepository;
             _globalPropertyService = globalPropertyService;
             _permissionPdfService = permissionPdfService;
+            _sysConfigService = sysConfigService;
         }
 
         public IEnumerable<EmployeeAbsenceRequestOutput> ExecuteProcess(decimal companyId)
@@ -163,6 +166,10 @@ namespace PrenominaApi.Services.Prenomina
             var returnDate = item.EndDate.AddDays(1);
             var employeeFullName = $"{keys?.Employee.Name ?? string.Empty} {keys?.Employee.LastName ?? string.Empty} {keys?.Employee.MLastName ?? string.Empty}".Trim();
 
+            // Cargar logo configurado en Apariencia (si existe) para incluirlo en el PDF.
+            var appearance = _sysConfigService.ExecuteProcess<GetAppearance, SysAppearance>(new GetAppearance());
+            var logo = appearance?.Logo;
+
             var bytes = _permissionPdfService.Generate(
                 company.Name,
                 employeeFullName,
@@ -176,7 +183,8 @@ namespace PrenominaApi.Services.Prenomina
                 item.StartDate.ToString("dd/MM/yyyy"),
                 item.EndDate.ToString("dd/MM/yyyy"),
                 returnDate.ToString("dd/MM/yyyy"),
-                days.ToString()
+                days.ToString(),
+                logo
             );
 
             // Sanitize filename: replace spaces and slashes

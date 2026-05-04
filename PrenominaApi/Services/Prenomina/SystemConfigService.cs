@@ -345,6 +345,50 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
 
+        public SysAppearance ExecuteProcess(GetAppearance _)
+        {
+            var setting = _repository.GetById(SysConfig.Appearance);
+            if (setting == null)
+            {
+                return new SysAppearance();
+            }
+
+            var parsed = JsonConvert.DeserializeObject<SysAppearance>(setting.Data);
+            return parsed ?? new SysAppearance();
+        }
+
+        public bool ExecuteProcess(EditAppearance editAppearance)
+        {
+            var existing = _repository.GetById(SysConfig.Appearance);
+            SysAppearance current = existing != null
+                ? (JsonConvert.DeserializeObject<SysAppearance>(existing.Data) ?? new SysAppearance())
+                : new SysAppearance();
+
+            if (editAppearance.PrimaryColor != null) current.PrimaryColor = editAppearance.PrimaryColor;
+            if (editAppearance.SecondColor != null) current.SecondColor = editAppearance.SecondColor;
+            if (editAppearance.Logo != null) current.Logo = editAppearance.Logo;
+
+            var serialized = JsonConvert.SerializeObject(current);
+
+            if (existing != null)
+            {
+                existing.Data = serialized;
+                _repository.Update(existing);
+            }
+            else
+            {
+                _repository.Create(new SystemConfig
+                {
+                    Key = SysConfig.Appearance,
+                    Data = serialized,
+                });
+            }
+
+            _repository.Save();
+            _cacheService.Remove(CacheKeys.SystemConfig);
+            return true;
+        }
+
         public bool ExecuteProcess(EditYearSistem editYear)
         {
             var findObject = _repository.GetById(SysConfig.ConfigYear);
