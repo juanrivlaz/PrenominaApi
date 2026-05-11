@@ -65,7 +65,7 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
                 var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
                 table.AddHeaderCell(AddCellToHeadToAttendance(
                     $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", fontSize, listDates.Count, TextAlignment.LEFT, 5, true, true, true));
-                table.AddHeaderCell(AddCellToHeadToAttendance("Observación", fontSize, 1, TextAlignment.CENTER, 1, false, true, true, false));
+                table.AddHeaderCell(AddCellToHeadToAttendance("Firma", fontSize, 1, TextAlignment.CENTER, 1, false, true, true, false));
 
                 int indexDate = 1;
                 foreach (var date in listDates)
@@ -98,7 +98,7 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
 
                     table.AddCell(AddCellToAttendace($"{checkEntry} {divider} {checkOut}", fontSize, true));
                 }
-                //header observation
+                //header firma
                 table.AddHeaderCell(AddCellToHeadToAttendance("", fontSize, 1, TextAlignment.CENTER, 1, false, false, true, false));
                 table.AddCell(AddCellToAttendace("", fontSize, true));
 

@@ -130,8 +130,10 @@ namespace PrenominaApi.Services.Prenomina
                 existRole.Label = role.Label;
                 existRole.UpdatedAt = DateTime.UtcNow;
 
-                var sectionCodes = role.Sections.Select(s => s.Code).ToList();
-                var existingSections = _sectionRepository.GetByFilter(s => sectionCodes.Contains(s.Code)).ToList();
+                var requestedSectionCodes = role.Sections.Select(s => s.Code).ToList();
+                var requestedCodeSet = requestedSectionCodes.ToHashSet();
+
+                var existingSections = _sectionRepository.GetByFilter(s => requestedSectionCodes.Contains(s.Code)).ToList();
                 var existingSectionCodes = existingSections.Select(s => s.Code).ToHashSet();
 
                 var newSections = role.Sections
@@ -143,26 +145,12 @@ namespace PrenominaApi.Services.Prenomina
                         Description = s.Label
                     }).ToList();
 
-                if (newSections.Any())
+                foreach (var newSection in newSections)
                 {
-                    foreach (var newSection in newSections)
-                    {
-                        _sectionRepository.Create(newSection);
-                    }
+                    _sectionRepository.Create(newSection);
                 }
 
-                var prevSectionRole = _sectionRoleRepository.GetByFilter(sr => sr.RolesId == existRole.Id).ToList();
-
-                if (prevSectionRole.Any())
-                {
-                    foreach (var section in prevSectionRole)
-                    {
-                        _sectionRoleRepository.Delete(section);
-                    }
-                }
-
-                var sections = existingSections.Concat(newSections).Where(item => sectionCodes.Contains(item.Code)).ToList();
-                existRole.Sections = sections.Select(s =>
+                Dictionary<string, bool> BuildPermissions(string sectionCode)
                 {
                     var permissions = new Dictionary<string, bool>
                     {
@@ -171,26 +159,46 @@ namespace PrenominaApi.Services.Prenomina
                         { "Delete", true }
                     };
 
-                    if (s.Code == SectionCode.Attendance.ToLower())
+                    if (sectionCode == SectionCode.Attendance.ToLower())
                     {
                         permissions.Add("CanClosePayrollPeriod", role.CanClosePayrollPeriod);
                         permissions.Add("CanModifyCheckins", role.CanModifyCheckins);
                     }
 
-                    if (s.Code == SectionCode.Periods.ToLower())
+                    if (sectionCode == SectionCode.Periods.ToLower())
                     {
                         permissions.Add("CanManagePeriods", role.CanManagePeriods);
                     }
 
-                    return new SectionRol()
-                    {
-                        SectionsCode = s.Code,
-                        RolesId = existRole.Id,
-                        Permissions = permissions
-                    };
-                }).ToList();
+                    return permissions;
+                }
 
-                _repository.Update(existRole);
+                var prevSectionRoles = _sectionRoleRepository.GetByFilter(sr => sr.RolesId == existRole.Id).ToList();
+                var prevByCode = prevSectionRoles.ToDictionary(sr => sr.SectionsCode);
+
+                foreach (var prev in prevSectionRoles.Where(p => !requestedCodeSet.Contains(p.SectionsCode)))
+                {
+                    _sectionRoleRepository.Delete(prev);
+                }
+
+                foreach (var code in requestedSectionCodes)
+                {
+                    if (prevByCode.TryGetValue(code, out var existingLink))
+                    {
+                        existingLink.Permissions = BuildPermissions(code);
+                        existingLink.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        _sectionRoleRepository.Create(new SectionRol
+                        {
+                            SectionsCode = code,
+                            RolesId = existRole.Id,
+                            Permissions = BuildPermissions(code)
+                        });
+                    }
+                }
+
                 _repository.GetDbContext().SaveChanges();
 
                 transaction.Commit();
