@@ -34,7 +34,7 @@ namespace PrenominaApi.Services.Prenomina
         public IEnumerable<Models.Prenomina.Period> ExecuteProcess(CreatePeriods createPeriods)
         {
             var result = new List<Models.Prenomina.Period>();
-            var payroll = _payrollRepository.GetByFilter(p => p.TypeNom == createPeriods.TypePayroll && p.Company == createPeriods.CompanyId).First();
+            var payroll = _payrollRepository.GetByFilter(p => p.TypeNom == createPeriods.TypePayroll && p.Company == createPeriods.CompanyId).FirstOrDefault();
 
             if (payroll == null) {
                 throw new BadHttpRequestException("El tipo de nómina no existe.");

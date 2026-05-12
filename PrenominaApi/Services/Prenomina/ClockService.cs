@@ -363,6 +363,15 @@ namespace PrenominaApi.Services.Prenomina
                         e.Company
                     )).ToList();
 
+                    if (!listEmployesWithCompany.Any())
+                    {
+                        await transaction.CommitAsync();
+                        clock.LastSyncAt = DateTime.UtcNow;
+                        _repository.Update(clock);
+                        _repository.Save();
+                        return true;
+                    }
+
                     var empCodes = listEmployesWithCompany.Select(e => (int)e.Codigo).Distinct().ToList();
                     var syncCompanyId = (int)listEmployesWithCompany.First().Company;
                     var dates = result.Select(r => new DateOnly(r.Year, r.Month, r.Day)).ToList();
@@ -546,6 +555,14 @@ namespace PrenominaApi.Services.Prenomina
                             e.Codigo,
                             e.Company
                         }).ToList();
+
+                        if (!listEmployesWithCompany.Any())
+                        {
+                            await transaction.CommitAsync();
+                            result.totalImported = 0;
+                            return result;
+                        }
+
                         var existingCheckIns = await context.employeeCheckIns.Where(ci => enrollNumbers.Contains(ci.EmployeeCode) && ci.Date >= minDate && ci.Date <= maxDate && ci.DeletedAt == null).ToListAsync();
                         var checkInsByEmployee = existingCheckIns.GroupBy(ci => ci.EmployeeCode).ToDictionary(g => g.Key, g => g.OrderBy(c => c.Date).ThenBy(c => c.CheckIn).ToList());
                         var newCheckIns = new List<EmployeeCheckIns>();

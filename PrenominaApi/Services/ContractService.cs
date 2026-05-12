@@ -195,7 +195,12 @@ namespace PrenominaApi.Services
             var employee = _employeeRepository.GetByFilter(
                 item => item.Company == setApplyNewContract.Company &&
                 item.Active == 'S' && item.Codigo == setApplyNewContract.Codigo
-            ).First();
+            ).FirstOrDefault();
+
+            if (employee == null)
+            {
+                throw new BadHttpRequestException("El empleado no existe o no se encuentra activo.");
+            }
 
             keys.TryGetValue((employee.Codigo, employee.Company), out var key);
             contracts.TryGetValue((employee.Codigo, employee.Company), out var contractsByUser);

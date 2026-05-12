@@ -232,8 +232,14 @@ namespace PrenominaApi.Services.Prenomina
 
             foreach (var item in attendanceRecord)
             {
-                var employee = employees.Where(e => e.Codigo == item.Codigo).First();
-                var keyEmployee = listKeys.Where(k => k.Codigo == employee.Codigo).FirstOrDefault();
+                var employee = employees.FirstOrDefault(e => e.Codigo == item.Codigo);
+
+                if (employee == null)
+                {
+                    continue;
+                }
+
+                var keyEmployee = listKeys.FirstOrDefault(k => k.Codigo == employee.Codigo);
                 var amount = employee.Salary;
 
                 if (keyEmployee == null)
@@ -414,7 +420,12 @@ namespace PrenominaApi.Services.Prenomina
                 var year = _globalPropertyService.YearOfOperation;
                 var company = _companyRepository.GetById((decimal)downloadWorked.CompanyId);
                 var period = _periodRepository.GetByFilter(p => p.Company == downloadWorked.CompanyId && p.TypePayroll == downloadWorked.PayrollId && p.NumPeriod == downloadWorked.NumberPeriod && p.Year == year).FirstOrDefault();
-                var payroll = _payrollRepository.GetByFilter(p => p.Company == company!.Id && p.TypeNom == downloadWorked.PayrollId).First();
+                var payroll = _payrollRepository.GetByFilter(p => p.Company == company!.Id && p.TypeNom == downloadWorked.PayrollId).FirstOrDefault();
+
+                if (payroll == null)
+                {
+                    throw new BadHttpRequestException("El tipo de nómina no existe.");
+                }
 
                 var tenantName = "";
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)

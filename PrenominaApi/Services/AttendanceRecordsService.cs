@@ -683,11 +683,16 @@ namespace PrenominaApi.Services
 
             var payroll = _payrollRepository.GetByFilter(
                 p => p.Company == company!.Id && p.TypeNom == downloadAttendance.TypeNomina
-            ).First();
+            ).FirstOrDefault();
 
             if (period == null)
             {
                 throw new BadHttpRequestException("El periodo seleccionado no es válido.");
+            }
+
+            if (payroll == null)
+            {
+                throw new BadHttpRequestException("El tipo de nómina no existe.");
             }
 
             // Obtener nombre de tenant
