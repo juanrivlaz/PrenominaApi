@@ -162,8 +162,8 @@ namespace PrenominaApi.Services
                 filter.Paginator.PageSize,
                 item => employeeCodes.Contains(item.Codigo) &&
                         item.Company == filter.Company &&
-                        item.Active == 'S' &&
-                        (item.LastMovement != 'B' || item.LastMovementDate >= startDateTime) &&
+                        ((item.LastMovement != 'B' && item.Active == 'S') ||
+                        (item.LastMovement == 'B' && item.LastMovementDate >= startDateTime)) &&
                         (string.IsNullOrWhiteSpace(lowerSearch) ||
                          item.Codigo.ToString().Contains(lowerSearch) ||
                          (item.Name + " " + item.LastName + " " + item.MLastName).ToLower().Contains(lowerSearch))

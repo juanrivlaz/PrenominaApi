@@ -75,10 +75,10 @@ namespace PrenominaApi.Services
                 ocupations.Contains(item.Ocupation)
             ).ToDictionary(t => t.Ocupation, t => t.Activity);
 
-            // Solo contratos activos: vencido = 'F' (no vencido) o días distintos de 9999 (placeholder de "sin contrato").
+            // Solo contratos activos: vencido = 'F' (no vencido) y días distintos de 9999 (placeholder de "sin contrato").
             var contracts = _repository.GetByFilter(
                 item => item.Company == contractsInput.CompanyId &&
-                (item.Expired == 'F' || item.Days != 9999) &&
+                item.Expired == 'F' && item.Days != 9999 &&
                 employeeCodes.Contains(item.Codigo)
             ).GroupBy(c => (c.Codigo, c.Company)).ToDictionary(g => g.Key, g => g.ToList());
 
