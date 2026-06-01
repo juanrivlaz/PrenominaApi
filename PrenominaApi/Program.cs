@@ -27,6 +27,7 @@ using PrenominaApi.Services;
 using PrenominaApi.Services.Utilities.AdditionalPayPdf;
 using PrenominaApi.Services.Utilities.PermissionPdf;
 using PrenominaApi.Services.Utilities.AttendancePdf;
+using PrenominaApi.Services.Utilities.ReportPdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -147,6 +148,7 @@ builder.Services.AddSingleton<ContractPdfService>();
 builder.Services.AddSingleton<AdditionalPayPdfService>();
 builder.Services.AddSingleton<PermissionPdfService>();
 builder.Services.AddSingleton<AttendancePdfService>();
+builder.Services.AddSingleton<ReportPdfService>();
 
 // Inject Excel Services
 builder.Services.AddScoped<IExcelGenerator, ReportDelaysExcelGenerator>();

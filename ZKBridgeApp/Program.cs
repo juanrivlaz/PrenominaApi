@@ -1,5 +1,7 @@
 ﻿using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
+using ModelClock;
 
 namespace ZKBridgeApp
 {
@@ -42,6 +44,17 @@ namespace ZKBridgeApp
                     case "clearcheckins":
                         zk.ClearCheckIns();
                         Console.WriteLine("{\"status\":\"ok\"}");
+                        break;
+
+                    case "setusers":
+                        {
+                            // Los usuarios a escribir se reciben como JSON por entrada estándar
+                            // (stdin) porque el payload puede ser grande (huellas, rostros).
+                            string input = Console.In.ReadToEnd();
+                            var users = JsonConvert.DeserializeObject<List<User>>(input) ?? new List<User>();
+                            int written = zk.SetUsers(users);
+                            Console.WriteLine(JsonConvert.SerializeObject(new { status = "ok", count = written }));
+                        }
                         break;
 
                     case "cleanup":

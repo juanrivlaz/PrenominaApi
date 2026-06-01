@@ -258,6 +258,30 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPost("delete-permission")]
+        public ActionResult<List<AssistanceIncident>> DeletePermission([FromBody] DeletePermission deletePermission)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            deletePermission.CompanyId = companyId;
+            deletePermission.UserId = userId;
+
+            var result = _service.ExecuteProcess<DeletePermission, List<AssistanceIncident>>(deletePermission);
+
+            return Ok(result);
+        }
+
         [HttpPost("sync-incapacity")]
         public ActionResult<SyncIncapacityOutput> SyncIncapacity([FromBody] SyncIncapacity syncIncapacity)
         {

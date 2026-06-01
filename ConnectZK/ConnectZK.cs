@@ -265,6 +265,86 @@ namespace ConnectZK
             return result;
         }
 
+        /// <summary>
+        /// Escribe (enrola) una lista de usuarios en el reloj, incluyendo huellas, rostro y número de tarjeta.
+        /// Usado para sincronizar usuarios de un reloj a otro o desde la base de datos hacia un reloj.
+        /// Devuelve la cantidad de usuarios escritos correctamente.
+        /// </summary>
+        public int SetUsers(IEnumerable<User> users)
+        {
+            int count = 0;
+
+            try
+            {
+                EnsureConnected();
+
+                // Deshabilitar el dispositivo durante la escritura masiva para evitar inconsistencias.
+                zkemkeeper.EnableDevice(1, false);
+
+                foreach (var user in users)
+                {
+                    if (string.IsNullOrEmpty(user.EnrollNumber))
+                    {
+                        continue;
+                    }
+
+                    // El número de tarjeta debe establecerse antes de SSR_SetUserInfo.
+                    if (!string.IsNullOrEmpty(user.CardNumber))
+                    {
+                        zkemkeeper.SetStrCardNumber(user.CardNumber);
+                    }
+
+                    bool ok = zkemkeeper.SSR_SetUserInfo(
+                        1,
+                        user.EnrollNumber,
+                        user.Name ?? string.Empty,
+                        user.Password ?? string.Empty,
+                        user.Privilege,
+                        user.Enabled
+                    );
+
+                    if (!ok)
+                    {
+                        int ErrorCode = 0;
+                        zkemkeeper.GetLastError(ref ErrorCode);
+                        throw new Exception($"No se pudo escribir el usuario {user.EnrollNumber}, codigo: {ErrorCode}");
+                    }
+
+                    // Huellas dactilares.
+                    if (user.UserFingers != null)
+                    {
+                        foreach (var finger in user.UserFingers)
+                        {
+                            if (string.IsNullOrEmpty(finger.FingerBase64))
+                            {
+                                continue;
+                            }
+
+                            zkemkeeper.SetUserTmpExStr(1, user.EnrollNumber, finger.FingerIndex, finger.Flag, finger.FingerBase64);
+                        }
+                    }
+
+                    // Rostro (si el reloj y el usuario lo tienen registrado).
+                    if (!string.IsNullOrEmpty(user.FaceBase64) && user.FaceLength > 0)
+                    {
+                        zkemkeeper.SetUserFaceStr(1, user.EnrollNumber, 50, user.FaceBase64, user.FaceLength);
+                    }
+
+                    count++;
+                }
+
+                zkemkeeper.RefreshData(1);
+            }
+            finally
+            {
+                // Rehabilitar el dispositivo siempre, aunque ocurra un error.
+                try { zkemkeeper.EnableDevice(1, true); } catch { }
+                Disconnect();
+            }
+
+            return count;
+        }
+
         public void ClearCheckIns()
         {
             try

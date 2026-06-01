@@ -263,6 +263,79 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpGet("pending-incidence-approvals")]
+        public ActionResult<IEnumerable<PendingIncidenceApprovalOutput>> GetPendingIncidenceApprovals()
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            var result = _assistanceIncidentService.ExecuteProcess<GetPendingIncidenceApprovals, IEnumerable<PendingIncidenceApprovalOutput>>(new GetPendingIncidenceApprovals
+            {
+                CompanyId = companyId,
+                UserId = userId
+            });
+
+            return Ok(result);
+        }
+
+        [HttpPost("approve-incidence")]
+        public ActionResult<AssistanceIncident> ApproveIncidence([FromBody] ApproveIncidence approveIncidence)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            approveIncidence.CompanyId = companyId;
+            approveIncidence.UserId = userId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<ApproveIncidence, AssistanceIncident>(approveIncidence);
+
+            return Ok(result);
+        }
+
+        [HttpPost("reject-incidence")]
+        public ActionResult<AssistanceIncident> RejectIncidence([FromBody] RejectIncidence rejectIncidence)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            rejectIncidence.CompanyId = companyId;
+            rejectIncidence.UserId = userId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<RejectIncidence, AssistanceIncident>(rejectIncidence);
+
+            return Ok(result);
+        }
+
         [HttpPost("fix-night-shift-eos")]
         public ActionResult<FixNightShiftEoSResult> FixNightShiftEoS()
         {

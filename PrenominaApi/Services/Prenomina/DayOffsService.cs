@@ -654,6 +654,10 @@ namespace PrenominaApi.Services.Prenomina
                     existIncident.UpdatedAt = DateTime.UtcNow;
                     existIncident.TimeOffRequest = true;
                     existIncident.RequestGroupId = requestGroupId;
+                    // Si el permiso requiere aprobación (por configuración del código o porque se
+                    // solicitó como solicitud de ausencia), queda pendiente y no se refleja en la
+                    // prenómina hasta ser aprobado.
+                    existIncident.Approved = !findIncidentCode.RequiredApproval && !registerDaysOff.RequireAbsenceRequest;
                     existIncident.Rejected = false;
                     existIncident.RejectionComment = null;
                     existIncident.RejectedAt = null;
@@ -680,7 +684,7 @@ namespace PrenominaApi.Services.Prenomina
                         Date = date,
                         IncidentCode = registerDaysOff.IncidentCode,
                         TimeOffRequest = true,
-                        Approved = !findIncidentCode.RequiredApproval,
+                        Approved = !findIncidentCode.RequiredApproval && !registerDaysOff.RequireAbsenceRequest,
                         RequestGroupId = requestGroupId,
                         ByUserId = Guid.Parse(registerDaysOff.UserId!)
                     });
@@ -776,6 +780,63 @@ namespace PrenominaApi.Services.Prenomina
             _auditLogRepository.Save();
 
             return incidentsToReject;
+        }
+
+        public List<AssistanceIncident> ExecuteProcess(DeletePermission deletePermission)
+        {
+            var incident = _assistanceIncident.GetByFilter(i =>
+                i.CompanyId == deletePermission.CompanyId &&
+                i.EmployeeCode == deletePermission.EmployeeCode &&
+                i.Date == deletePermission.Date
+            ).FirstOrDefault();
+
+            if (incident == null)
+            {
+                throw new BadHttpRequestException("No se encontró el permiso para la fecha indicada.");
+            }
+
+            var incidentsToDelete = new List<AssistanceIncident>();
+
+            if (incident.RequestGroupId != null)
+            {
+                incidentsToDelete = _assistanceIncident.GetByFilter(i =>
+                    i.RequestGroupId == incident.RequestGroupId &&
+                    i.CompanyId == deletePermission.CompanyId
+                ).ToList();
+            }
+            else
+            {
+                incidentsToDelete.Add(incident);
+            }
+
+            // Sólo se pueden eliminar permisos que aún no han sido aprobados. Los aprobados
+            // deben rechazarse formalmente (con motivo) en lugar de eliminarse.
+            if (incidentsToDelete.Any(i => i.Approved))
+            {
+                throw new BadHttpRequestException("El permiso ya fue aprobado, debe rechazarse en lugar de eliminarse.");
+            }
+
+            var userId = Guid.Parse(deletePermission.UserId ?? Guid.Empty.ToString());
+
+            foreach (var item in incidentsToDelete)
+            {
+                _assistanceIncident.Delete(item);
+
+                _auditLogRepository.Create(new AuditLog()
+                {
+                    SectionCode = SectionCode.DayOff,
+                    RecordId = item.Id.ToString(),
+                    Description = $"Se eliminó el permiso del empleado {item.EmployeeCode} de la empresa {item.CompanyId} el día {item.Date}.",
+                    OldValue = item.IncidentCode,
+                    NewValue = "Eliminado",
+                    ByUserId = userId,
+                });
+            }
+
+            _assistanceIncident.Save();
+            _auditLogRepository.Save();
+
+            return incidentsToDelete;
         }
 
         public SyncIncapacityOutput ExecuteProcess(SyncIncapacity syncIncapacity)

@@ -21,6 +21,8 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToActivity> _ignoreIncidentToActivityRepository;
         private readonly IBaseRepositoryPrenomina<EmployeeCheckIns> _employeeCheckInsRepository;
         private readonly IBaseRepositoryPrenomina<User> _userRepository;
+        private readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepository;
+        private readonly IBaseRepositoryPrenomina<AssistanceIncidentApprover> _assistanceIncidentApproverRepository;
 
         private readonly IBaseServicePrenomina<Models.Prenomina.Period> _periodService;
         private readonly IBaseRepository<Key> _keyRepository;
@@ -36,6 +38,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<IgnoreIncidentToActivity> ignoreIncidentToActivityRepository,
             IBaseRepositoryPrenomina<EmployeeCheckIns> employeeCheckInsRepository,
             IBaseRepositoryPrenomina<User> userRepository,
+            IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepository,
+            IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository,
             IBaseServicePrenomina<Models.Prenomina.Period> periodService,
             IBaseRepository<Key> keyRepository,
             IBaseRepository<Employee> employeeRepository,
@@ -48,6 +52,8 @@ namespace PrenominaApi.Services.Prenomina
             _ignoreIncidentToActivityRepository = ignoreIncidentToActivityRepository;
             _employeeCheckInsRepository = employeeCheckInsRepository;
             _userRepository = userRepository;
+            _incidentApproverRepository = incidentApproverRepository;
+            _assistanceIncidentApproverRepository = assistanceIncidentApproverRepository;
 
             _keyRepository = keyRepository;
             _employeeRepository = employeeRepository;
@@ -152,6 +158,26 @@ namespace PrenominaApi.Services.Prenomina
                     findAssistanceIncident.IncidentCode = applyIncident.IncidentCode;
                     findAssistanceIncident.UpdatedAt = DateTime.UtcNow;
 
+                    // Al cambiar el código se reinicia el estado de aprobación: si el nuevo código
+                    // requiere aprobación, la incidencia vuelve a quedar pendiente y se limpian las
+                    // aprobaciones previas para que no se refleje en la prenómina hasta aprobarse.
+                    if (prevIncidentCode != applyIncident.IncidentCode)
+                    {
+                        findAssistanceIncident.Approved = !findIncidentCode.RequiredApproval;
+                        findAssistanceIncident.Rejected = false;
+                        findAssistanceIncident.RejectionComment = null;
+                        findAssistanceIncident.RejectedByUserId = null;
+                        findAssistanceIncident.RejectedAt = null;
+
+                        var prevApprovals = _assistanceIncidentApproverRepository
+                            .GetByFilter(a => a.AssistanceIncidentId == findAssistanceIncident.Id)
+                            .ToList();
+                        foreach (var prevApproval in prevApprovals)
+                        {
+                            _assistanceIncidentApproverRepository.Delete(prevApproval);
+                        }
+                    }
+
                     _repository.Update(findAssistanceIncident);
 
                     if (prevIncidentCode != applyIncident.IncidentCode)
@@ -241,6 +267,230 @@ namespace PrenominaApi.Services.Prenomina
                 Console.WriteLine(ex);
                 throw;
             }
+        }
+
+        public IEnumerable<PendingIncidenceApprovalOutput> ExecuteProcess(GetPendingIncidenceApprovals input)
+        {
+            if (string.IsNullOrEmpty(input.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            var userId = Guid.Parse(input.UserId);
+
+            // Códigos de incidencia que el usuario actual puede aprobar (está configurado como aprobador).
+            var myApprovers = _incidentApproverRepository.GetByFilter(ia => ia.UserId == userId).ToList();
+            var myApproverCodes = myApprovers.Select(ia => ia.IncidentCode).ToHashSet();
+
+            if (myApproverCodes.Count == 0)
+            {
+                return Enumerable.Empty<PendingIncidenceApprovalOutput>();
+            }
+
+            // Incidencias pendientes (no aprobadas y no rechazadas) de esos códigos en la empresa.
+            // Se excluyen los permisos (TimeOffRequest) porque se aprueban en el flujo de solicitudes de ausencia.
+            var pendingIncidents = _assistanceIncidentRepository.GetByFilter(ai =>
+                ai.CompanyId == input.CompanyId &&
+                !ai.Approved &&
+                !ai.Rejected &&
+                !ai.TimeOffRequest &&
+                myApproverCodes.Contains(ai.IncidentCode)
+            ).ToList();
+
+            if (pendingIncidents.Count == 0)
+            {
+                return Enumerable.Empty<PendingIncidenceApprovalOutput>();
+            }
+
+            var incidentIds = pendingIncidents.Select(i => i.Id).ToHashSet();
+            var incidentCodes = pendingIncidents.Select(i => i.IncidentCode).ToHashSet();
+            var employeeCodes = pendingIncidents.Select(i => i.EmployeeCode).ToHashSet();
+
+            // Total de aprobadores requeridos por código y aprobaciones ya registradas por incidencia.
+            var approversByCode = _incidentApproverRepository.GetByFilter(ia => incidentCodes.Contains(ia.IncidentCode))
+                .GroupBy(ia => ia.IncidentCode)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var approvals = _assistanceIncidentApproverRepository.GetByFilter(a => incidentIds.Contains(a.AssistanceIncidentId)).ToList();
+            var approvalsByIncident = approvals
+                .GroupBy(a => a.AssistanceIncidentId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var myApproverIds = myApprovers.Select(ia => ia.Id).ToHashSet();
+
+            var incidentCodeLabels = _incidentCodeRepository.GetByFilter(ic => incidentCodes.Contains(ic.Code))
+                .ToDictionary(ic => ic.Code, ic => ic.Label);
+
+            var employees = _employeeRepository.GetByFilter(e => e.Company == input.CompanyId && employeeCodes.Contains(e.Codigo))
+                .ToDictionary(e => (int)e.Codigo, e => $"{e.Name} {e.LastName} {e.MLastName}");
+
+            return pendingIncidents.Select(incident =>
+            {
+                approversByCode.TryGetValue(incident.IncidentCode, out var codeApprovers);
+                approvalsByIncident.TryGetValue(incident.Id, out var incidentApprovals);
+
+                var totalApprovers = codeApprovers?.Count ?? 0;
+                var approvedCount = incidentApprovals?.Count ?? 0;
+                var alreadyApprovedByMe = incidentApprovals?.Any(a => myApproverIds.Contains(a.IncidentApproverId)) ?? false;
+
+                return new PendingIncidenceApprovalOutput
+                {
+                    Id = incident.Id,
+                    EmployeeCode = incident.EmployeeCode,
+                    EmployeeName = employees.TryGetValue(incident.EmployeeCode, out var name) ? name : string.Empty,
+                    IncidentCode = incident.IncidentCode,
+                    IncidentDescription = incidentCodeLabels.TryGetValue(incident.IncidentCode, out var label) ? label : string.Empty,
+                    Date = incident.Date,
+                    Notes = incident.Notes,
+                    CreatedAt = incident.CreatedAt,
+                    TotalApprovers = totalApprovers,
+                    ApprovedCount = approvedCount,
+                    AlreadyApprovedByMe = alreadyApprovedByMe,
+                };
+            })
+            // Solo se muestran las que el usuario actual aún no ha aprobado.
+            .Where(o => !o.AlreadyApprovedByMe)
+            .OrderBy(o => o.Date)
+            .ToList();
+        }
+
+        public AssistanceIncident ExecuteProcess(ApproveIncidence input)
+        {
+            if (string.IsNullOrEmpty(input.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            var userId = Guid.Parse(input.UserId);
+
+            var incident = _repository.GetByFilter(i => i.Id == input.AssistanceIncidentId && i.CompanyId == input.CompanyId).FirstOrDefault();
+
+            if (incident == null)
+            {
+                throw new BadHttpRequestException("La incidencia no existe.");
+            }
+
+            if (incident.Rejected)
+            {
+                throw new BadHttpRequestException("La incidencia fue rechazada y no puede aprobarse.");
+            }
+
+            if (incident.Approved)
+            {
+                return incident;
+            }
+
+            // El usuario debe estar configurado como aprobador del código de la incidencia.
+            var myApprover = _incidentApproverRepository.GetByFilter(ia =>
+                ia.IncidentCode == incident.IncidentCode && ia.UserId == userId
+            ).FirstOrDefault();
+
+            if (myApprover == null)
+            {
+                throw new BadHttpRequestException("No tienes autorización para aprobar esta incidencia.");
+            }
+
+            var existingApprovals = _assistanceIncidentApproverRepository
+                .GetByFilter(a => a.AssistanceIncidentId == incident.Id).ToList();
+
+            // Evitar doble aprobación del mismo usuario.
+            if (!existingApprovals.Any(a => a.IncidentApproverId == myApprover.Id))
+            {
+                _assistanceIncidentApproverRepository.Create(new AssistanceIncidentApprover
+                {
+                    AssistanceIncidentId = incident.Id,
+                    IncidentApproverId = myApprover.Id,
+                    ApprovalDate = DateTime.UtcNow,
+                    AssistanceIncident = incident,
+                    IncidentApprover = myApprover,
+                });
+                _assistanceIncidentApproverRepository.Save();
+
+                existingApprovals.Add(new AssistanceIncidentApprover
+                {
+                    AssistanceIncidentId = incident.Id,
+                    IncidentApproverId = myApprover.Id,
+                    ApprovalDate = DateTime.UtcNow,
+                    AssistanceIncident = incident,
+                    IncidentApprover = myApprover,
+                });
+            }
+
+            // La incidencia queda aprobada sólo cuando TODOS los aprobadores configurados aprobaron.
+            var totalApprovers = _incidentApproverRepository.GetByFilter(ia => ia.IncidentCode == incident.IncidentCode).Count();
+            var approvedCount = existingApprovals.Select(a => a.IncidentApproverId).Distinct().Count();
+
+            if (totalApprovers > 0 && approvedCount >= totalApprovers)
+            {
+                incident.Approved = true;
+                incident.Rejected = false;
+                incident.UpdatedAt = DateTime.UtcNow;
+                _repository.Update(incident);
+                _repository.Save();
+
+                _auditLogRepository.Create(new AuditLog()
+                {
+                    SectionCode = "TASISTENCIA",
+                    RecordId = incident.Id.ToString(),
+                    Description = $"Se aprobó por completo la incidencia {incident.IncidentCode} del empleado {incident.EmployeeCode} de la empresa {incident.CompanyId} el día {incident.Date}.",
+                    OldValue = "Pendiente",
+                    NewValue = "Aprobado",
+                    ByUserId = userId,
+                });
+                _auditLogRepository.Save();
+            }
+
+            return incident;
+        }
+
+        public AssistanceIncident ExecuteProcess(RejectIncidence input)
+        {
+            if (string.IsNullOrEmpty(input.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            var userId = Guid.Parse(input.UserId);
+
+            var incident = _repository.GetByFilter(i => i.Id == input.AssistanceIncidentId && i.CompanyId == input.CompanyId).FirstOrDefault();
+
+            if (incident == null)
+            {
+                throw new BadHttpRequestException("La incidencia no existe.");
+            }
+
+            // El usuario debe estar configurado como aprobador del código de la incidencia.
+            var myApprover = _incidentApproverRepository.GetByFilter(ia =>
+                ia.IncidentCode == incident.IncidentCode && ia.UserId == userId
+            ).FirstOrDefault();
+
+            if (myApprover == null)
+            {
+                throw new BadHttpRequestException("No tienes autorización para rechazar esta incidencia.");
+            }
+
+            incident.Rejected = true;
+            incident.Approved = false;
+            incident.RejectionComment = input.Comment;
+            incident.RejectedByUserId = userId;
+            incident.RejectedAt = DateTime.UtcNow;
+            incident.UpdatedAt = DateTime.UtcNow;
+
+            _repository.Update(incident);
+            _repository.Save();
+
+            _auditLogRepository.Create(new AuditLog()
+            {
+                SectionCode = "TASISTENCIA",
+                RecordId = incident.Id.ToString(),
+                Description = $"Se rechazó la incidencia {incident.IncidentCode} del empleado {incident.EmployeeCode} de la empresa {incident.CompanyId} el día {incident.Date}. Motivo: {input.Comment ?? "Sin comentario"}",
+                OldValue = "Pendiente",
+                NewValue = "Rechazado",
+                ByUserId = userId,
+            });
+            _auditLogRepository.Save();
+
+            return incident;
         }
 
         public bool ExecuteProcess(DeleteIncidentsToEmployee deleteIncidentsToEmployee)

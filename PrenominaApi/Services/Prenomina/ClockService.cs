@@ -62,6 +62,51 @@ namespace PrenominaApi.Services.Prenomina
             return result;
         }
 
+        public Clock ExecuteProcess(UpdateClock updateClock)
+        {
+            var clock = _repository.GetById(updateClock.Id);
+
+            if (clock == null)
+            {
+                throw new BadHttpRequestException("El reloj no existe.");
+            }
+
+            var existIp = _repository.GetByFilter(c => c.Ip == updateClock.Ip && c.Id != updateClock.Id && c.DeletedAt == null).FirstOrDefault();
+
+            if (existIp != null)
+            {
+                throw new BadHttpRequestException("La IP ya fue registrada en otro reloj.");
+            }
+
+            clock.Ip = updateClock.Ip;
+            clock.Label = updateClock.Label;
+            clock.Port = updateClock.Port ?? 4370;
+            clock.UpdatedAt = DateTime.UtcNow;
+
+            _repository.Update(clock);
+            _repository.Save();
+
+            return clock;
+        }
+
+        public bool ExecuteProcess(DeleteClock deleteClock)
+        {
+            var clock = _repository.GetById(deleteClock.Id);
+
+            if (clock == null)
+            {
+                throw new BadHttpRequestException("El reloj no existe.");
+            }
+
+            // Borrado lógico para evitar problemas con registros relacionados (checadas, usuarios del reloj).
+            clock.DeletedAt = DateTime.UtcNow;
+
+            _repository.Update(clock);
+            _repository.Save();
+
+            return true;
+        }
+
         public async Task<IEnumerable<ClockUser>> ExecuteProcess(GetClockUser getClockUser)
         {
             var result = new List<ClockUser>();
@@ -441,6 +486,142 @@ namespace PrenominaApi.Services.Prenomina
             _repository.Save();
 
             return true;
+        }
+
+        public async Task<SyncUsersResult> ExecuteProcess(SyncClockToClock input)
+        {
+            if (input.SourceClockId == input.TargetClockId)
+            {
+                throw new BadHttpRequestException("El reloj origen y el destino no pueden ser el mismo.");
+            }
+
+            var source = _repository.GetById(input.SourceClockId);
+            var target = _repository.GetById(input.TargetClockId);
+
+            if (source == null)
+            {
+                throw new BadHttpRequestException("El reloj origen no existe.");
+            }
+
+            if (target == null)
+            {
+                throw new BadHttpRequestException("El reloj destino no existe.");
+            }
+
+            // 1) Leer todos los usuarios (con huellas/rostro) del reloj origen.
+            var usersJson = await RunBridge(source.Ip, source.Port ?? 4370, "getfullusers");
+            var users = JsonSerializer.Deserialize<List<ModelClock.User>>(usersJson) ?? new List<ModelClock.User>();
+
+            if (users.Count == 0)
+            {
+                return new SyncUsersResult { TotalUsers = 0, Message = "El reloj origen no tiene usuarios para sincronizar." };
+            }
+
+            // 2) Escribir esos usuarios en el reloj destino.
+            var payload = JsonSerializer.Serialize(users);
+            await RunBridge(target.Ip, target.Port ?? 4370, "setusers", payload);
+
+            return new SyncUsersResult
+            {
+                TotalUsers = users.Count,
+                Message = $"Se sincronizaron {users.Count} usuario(s) del reloj {source.Label} al reloj {target.Label}."
+            };
+        }
+
+        public async Task<SyncUsersResult> ExecuteProcess(SyncDbToClock input)
+        {
+            var clock = _repository.GetById(input.ClockId);
+
+            if (clock == null)
+            {
+                throw new BadHttpRequestException("El reloj no existe.");
+            }
+
+            var context = _repository.GetDbContext();
+            var dbUsers = context.clockUsers.Include(u => u.UserFingers).ToList();
+
+            if (dbUsers.Count == 0)
+            {
+                return new SyncUsersResult { TotalUsers = 0, Message = "No hay usuarios en la base de datos para sincronizar." };
+            }
+
+            var users = dbUsers.Select(u => new ModelClock.User
+            {
+                EnrollNumber = u.EnrollNumber,
+                Name = u.Name,
+                Password = u.Password,
+                Privilege = u.Privilege,
+                Enabled = u.Enabled,
+                CardNumber = u.CardNumber,
+                FaceBase64 = u.FaceBase64,
+                FaceLength = u.FaceLength,
+                UserFingers = (u.UserFingers ?? new List<ClockUserFinger>()).Select(f => new ModelClock.UserFinger
+                {
+                    EnrollNumber = f.EnrollNumber,
+                    FingerIndex = f.FingerIndex,
+                    Flag = f.Flag,
+                    FingerBase64 = f.FingerBase64,
+                    FingerLength = f.FingerLength
+                }).ToList()
+            }).ToList();
+
+            var payload = JsonSerializer.Serialize(users);
+            await RunBridge(clock.Ip, clock.Port ?? 4370, "setusers", payload);
+
+            return new SyncUsersResult
+            {
+                TotalUsers = users.Count,
+                Message = $"Se sincronizaron {users.Count} usuario(s) de la base de datos al reloj {clock.Label}."
+            };
+        }
+
+        // Ejecuta el puente ZKBridgeApp. Si se proporciona stdinJson, se envía por entrada estándar
+        // (usado por "setusers" porque el payload de usuarios puede ser grande).
+        private async Task<string> RunBridge(string ip, int port, string method, string? stdinJson = null)
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = @"tools/zkbridge/ZKBridgeApp.exe",
+                    Arguments = $"{ip} {port} {method}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    RedirectStandardInput = stdinJson != null,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            string output;
+            string error;
+
+            try
+            {
+                process.Start();
+
+                if (stdinJson != null)
+                {
+                    await process.StandardInput.WriteAsync(stdinJson);
+                    process.StandardInput.Close();
+                }
+
+                output = await process.StandardOutput.ReadToEndAsync();
+                error = await process.StandardError.ReadToEndAsync();
+
+                process.WaitForExit();
+            }
+            catch (Exception)
+            {
+                throw new Exception("Ocurrio un error en la comunicacion con el reloj");
+            }
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                throw new Exception($"Error: {error}");
+            }
+
+            return ClearClockJsonResponse.OutputJson(output);
         }
 
         public async Task<ResultImportCheckinsFromFile> ExecuteProcess(ImportCheckinsFromFile importCheckinsFromFile)

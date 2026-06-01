@@ -20,7 +20,7 @@ namespace PrenominaApi.Controllers
         [HttpGet]
         public ActionResult<IEnumerable<Clock>> Get()
         {
-            var result = _service.GetAll();
+            var result = _service.GetByFilter(c => c.DeletedAt == null);
 
             return Ok(result);
         }
@@ -42,6 +42,38 @@ namespace PrenominaApi.Controllers
             var result = _service.ExecuteProcess<CreateClock, Clock>(createClock);
 
             return Ok(result);
+        }
+
+        [HttpPut("{id}")]
+        public ActionResult<Clock> Update(string id, [FromBody] UpdateClock updateClock)
+        {
+            EnsureSudo();
+
+            updateClock.Id = Guid.Parse(id);
+            var result = _service.ExecuteProcess<UpdateClock, Clock>(updateClock);
+
+            return Ok(result);
+        }
+
+        [HttpDelete("{id}")]
+        public ActionResult<bool> Delete(string id)
+        {
+            EnsureSudo();
+
+            var result = _service.ExecuteProcess<DeleteClock, bool>(new DeleteClock { Id = Guid.Parse(id) });
+
+            return Ok(result);
+        }
+
+        // Solo los usuarios con rol Sudo pueden editar o eliminar relojes.
+        private void EnsureSudo()
+        {
+            var userDetails = HttpContext.Items["UserDetails"] as UserDetails;
+
+            if (userDetails?.role?.Code != Models.Prenomina.Enums.RoleCode.Sudo)
+            {
+                throw new UnauthorizedAccessException("Solo el administrador puede editar o eliminar relojes.");
+            }
         }
 
         [HttpPost("send-ping")]
@@ -66,6 +98,25 @@ namespace PrenominaApi.Controllers
             var result = await _service.ExecuteProcess<SyncClockAttendance, Task<bool>>(new SyncClockAttendance()
             {
                 Id = Guid.Parse(clockId),
+            });
+
+            return Ok(result);
+        }
+
+        [HttpPost("sync-clock-to-clock")]
+        public async Task<ActionResult<SyncUsersResult>> SyncClockToClock([FromBody] SyncClockToClock input)
+        {
+            var result = await _service.ExecuteProcess<SyncClockToClock, Task<SyncUsersResult>>(input);
+
+            return Ok(result);
+        }
+
+        [HttpPost("sync-db-to-clock/{clockId}")]
+        public async Task<ActionResult<SyncUsersResult>> SyncDbToClock(string clockId)
+        {
+            var result = await _service.ExecuteProcess<SyncDbToClock, Task<SyncUsersResult>>(new SyncDbToClock
+            {
+                ClockId = Guid.Parse(clockId)
             });
 
             return Ok(result);

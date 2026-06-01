@@ -19,6 +19,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly PermissionPdfService _permissionPdfService;
         public readonly GlobalPropertyService _globalPropertyService;
         private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
+        private readonly IBaseRepositoryPrenomina<AssistanceIncident> _assistanceIncidentRepository;
 
         public EmployeeAbsenceRequestsService(
             IBaseRepositoryPrenomina<EmployeeAbsenceRequests> repository,
@@ -26,7 +27,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepository<Company> companyRepository,
             GlobalPropertyService globalPropertyService,
             PermissionPdfService permissionPdfService,
-            IBaseServicePrenomina<SystemConfig> sysConfigService
+            IBaseServicePrenomina<SystemConfig> sysConfigService,
+            IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository
         ) : base(repository)
         {
             _keyRepository = keyRepository;
@@ -34,6 +36,7 @@ namespace PrenominaApi.Services.Prenomina
             _globalPropertyService = globalPropertyService;
             _permissionPdfService = permissionPdfService;
             _sysConfigService = sysConfigService;
+            _assistanceIncidentRepository = assistanceIncidentRepository;
         }
 
         public IEnumerable<EmployeeAbsenceRequestOutput> ExecuteProcess(decimal companyId)
@@ -122,8 +125,48 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             item.Status = changeStatus.Status;
+            item.UpdatedAt = DateTime.UtcNow;
             _repository.Update(item);
             _repository.Save();
+
+            // Propagar el resultado de la aprobación a las incidencias relacionadas para que el
+            // permiso sólo se refleje en la prenómina una vez aprobado. La solicitud se relaciona
+            // con las incidencias por empresa, empleado, código de incidencia y rango de fechas.
+            if (changeStatus.Status == AbsenceRequestStatus.Approved || changeStatus.Status == AbsenceRequestStatus.Rejected)
+            {
+                var relatedIncidents = _assistanceIncidentRepository.GetByFilter(ai =>
+                    ai.CompanyId == item.CompanyId &&
+                    ai.EmployeeCode == item.EmployeeCode &&
+                    ai.IncidentCode == item.IncidentCode &&
+                    ai.Date >= item.StartDate &&
+                    ai.Date <= item.EndDate
+                ).ToList();
+
+                var now = DateTime.UtcNow;
+                var approved = changeStatus.Status == AbsenceRequestStatus.Approved;
+
+                foreach (var incident in relatedIncidents)
+                {
+                    incident.Approved = approved;
+                    incident.Rejected = !approved;
+                    incident.UpdatedAt = now;
+
+                    if (!approved)
+                    {
+                        incident.RejectedAt = now;
+                    }
+                    else
+                    {
+                        incident.RejectedAt = null;
+                        incident.RejectionComment = null;
+                        incident.RejectedByUserId = null;
+                    }
+
+                    _assistanceIncidentRepository.Update(incident);
+                }
+
+                _assistanceIncidentRepository.Save();
+            }
 
             return true;
         }

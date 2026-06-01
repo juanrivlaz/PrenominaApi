@@ -676,6 +676,7 @@ namespace PrenominaApi.Services.Prenomina
             var incidents = _assistanceIncidentRepository.GetContextEntity().AsNoTracking()
                 .Where(ai =>
                     ai.CompanyId == getReport.Company &&
+                    ai.Approved &&
                     ai.Date >= StartDate &&
                     ai.Date <= ClosingDate &&
                     employees.Select(e => e.Codigo).Contains(ai.EmployeeCode)
@@ -794,6 +795,7 @@ namespace PrenominaApi.Services.Prenomina
             var incidentDates = _assistanceIncidentRepository.GetContextEntity().AsNoTracking()
                 .Where(ai =>
                     ai.CompanyId == getReport.Company &&
+                    ai.Approved &&
                     ai.Date >= StartDate &&
                     ai.Date <= ClosingDate &&
                     employees.Select(e => e.Codigo).Contains(ai.EmployeeCode)
