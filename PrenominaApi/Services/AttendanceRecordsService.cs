@@ -323,7 +323,9 @@ namespace PrenominaApi.Services
                         CheckOut = checkOut?.CheckIn.ToString("HH:mm:ss"),
                         IsNightShift = isNightShift,
                         CheckOutDate = checkOutDate,
-                        AssistanceIncidents = dayIncidents.Select(ai => new AssistanceIncidentOutput
+                        // Solo se exponen las incidencias ya aprobadas; las pendientes de aprobación
+                        // no deben mostrarse en asistencia (ni en el detalle del día) hasta aprobarse.
+                        AssistanceIncidents = dayIncidents.Where(ai => ai.Approved).Select(ai => new AssistanceIncidentOutput
                         {
                             Id = ai.Id,
                             Date = ai.Date,
@@ -785,7 +787,7 @@ namespace PrenominaApi.Services
                         TypeNom = checks?.FirstOrDefault()?.TypeNom ?? 0,
                         CheckEntry = checks?.FirstOrDefault(c => c.EoS == EntryOrExit.Entry)?.CheckIn.ToString("HH:mm"),
                         CheckOut = checks?.LastOrDefault(c => c.EoS == EntryOrExit.Exit)?.CheckIn.ToString("HH:mm"),
-                        AssistanceIncidents = incidents.Select(ai => new AssistanceIncidentOutput
+                        AssistanceIncidents = incidents.Where(ai => ai.Approved).Select(ai => new AssistanceIncidentOutput
                         {
                             Id = ai.Id,
                             Date = ai.Date,

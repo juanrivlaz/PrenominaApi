@@ -378,9 +378,8 @@ namespace PrenominaApi.Services.Prenomina
                     Rejected = incident.Rejected,
                 };
             })
-            // En la vista de pendientes se ocultan las que el usuario actual ya aprobó
-            // (esperan a otros aprobadores). En las demás vistas se muestran todas.
-            .Where(o => status != 0 || !o.AlreadyApprovedByMe)
+            // Las que el usuario actual ya aprobó siguen visibles (esperando a otros aprobadores),
+            // pero el frontend les oculta las acciones de aprobar/rechazar usando AlreadyApprovedByMe.
             .OrderBy(o => o.Date)
             .ToList();
         }
