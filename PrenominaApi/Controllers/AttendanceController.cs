@@ -264,7 +264,7 @@ namespace PrenominaApi.Controllers
         }
 
         [HttpGet("pending-incidence-approvals")]
-        public ActionResult<IEnumerable<PendingIncidenceApprovalOutput>> GetPendingIncidenceApprovals()
+        public ActionResult<IEnumerable<PendingIncidenceApprovalOutput>> GetPendingIncidenceApprovals([FromQuery] int status = 0)
         {
             string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
             string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
@@ -282,7 +282,8 @@ namespace PrenominaApi.Controllers
             var result = _assistanceIncidentService.ExecuteProcess<GetPendingIncidenceApprovals, IEnumerable<PendingIncidenceApprovalOutput>>(new GetPendingIncidenceApprovals
             {
                 CompanyId = companyId,
-                UserId = userId
+                UserId = userId,
+                Status = status
             });
 
             return Ok(result);

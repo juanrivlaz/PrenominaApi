@@ -290,12 +290,18 @@ namespace PrenominaApi.Services.Prenomina
                 return Enumerable.Empty<PendingIncidenceApprovalOutput>();
             }
 
-            // Incidencias pendientes (no aprobadas y no rechazadas) de esos códigos en la empresa.
+            // Incidencias de esos códigos en la empresa, filtradas por estado:
+            // -1 = Todas, 0 = Pendientes, 1 = Aprobadas, 2 = Rechazadas.
+            var status = input.Status;
             var pendingIncidents = _repository.GetByFilter(ai =>
                 ai.CompanyId == input.CompanyId &&
-                !ai.Approved &&
-                !ai.Rejected &&
-                myApproverCodes.Contains(ai.IncidentCode)
+                myApproverCodes.Contains(ai.IncidentCode) &&
+                (
+                    status == -1 ||
+                    (status == 0 && !ai.Approved && !ai.Rejected) ||
+                    (status == 1 && ai.Approved) ||
+                    (status == 2 && ai.Rejected)
+                )
             ).ToList();
 
             if (pendingIncidents.Count == 0)
@@ -368,10 +374,13 @@ namespace PrenominaApi.Services.Prenomina
                     TotalApprovers = totalApprovers,
                     ApprovedCount = approvedCount,
                     AlreadyApprovedByMe = alreadyApprovedByMe,
+                    Approved = incident.Approved,
+                    Rejected = incident.Rejected,
                 };
             })
-            // Solo se muestran las que el usuario actual aún no ha aprobado.
-            .Where(o => !o.AlreadyApprovedByMe)
+            // En la vista de pendientes se ocultan las que el usuario actual ya aprobó
+            // (esperan a otros aprobadores). En las demás vistas se muestran todas.
+            .Where(o => status != 0 || !o.AlreadyApprovedByMe)
             .OrderBy(o => o.Date)
             .ToList();
         }

@@ -17,5 +17,8 @@ namespace PrenominaApi.Models.Dto.Output.Attendance
         public int TotalApprovers { get; set; }
         public int ApprovedCount { get; set; }
         public bool AlreadyApprovedByMe { get; set; }
+        // Estado actual de la incidencia (para distinguir aprobadas/rechazadas/pendientes al filtrar).
+        public bool Approved { get; set; }
+        public bool Rejected { get; set; }
     }
 }
