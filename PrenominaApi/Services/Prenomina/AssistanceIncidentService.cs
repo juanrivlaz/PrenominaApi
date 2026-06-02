@@ -289,7 +289,7 @@ namespace PrenominaApi.Services.Prenomina
 
             // Incidencias pendientes (no aprobadas y no rechazadas) de esos códigos en la empresa.
             // Se excluyen los permisos (TimeOffRequest) porque se aprueban en el flujo de solicitudes de ausencia.
-            var pendingIncidents = _assistanceIncidentRepository.GetByFilter(ai =>
+            var pendingIncidents = _repository.GetByFilter(ai =>
                 ai.CompanyId == input.CompanyId &&
                 !ai.Approved &&
                 !ai.Rejected &&
@@ -321,7 +321,7 @@ namespace PrenominaApi.Services.Prenomina
             var incidentCodeLabels = _incidentCodeRepository.GetByFilter(ic => incidentCodes.Contains(ic.Code))
                 .ToDictionary(ic => ic.Code, ic => ic.Label);
 
-            var employees = _employeeRepository.GetByFilter(e => e.Company == input.CompanyId && employeeCodes.Contains(e.Codigo))
+            var employees = _employeeRepository.GetByFilter(e => e.Company == input.CompanyId && employeeCodes.Contains((int)e.Codigo))
                 .ToDictionary(e => (int)e.Codigo, e => $"{e.Name} {e.LastName} {e.MLastName}");
 
             return pendingIncidents.Select(incident =>
