@@ -23,6 +23,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<User> _userRepository;
         private readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepository;
         private readonly IBaseRepositoryPrenomina<AssistanceIncidentApprover> _assistanceIncidentApproverRepository;
+        private readonly IBaseRepositoryPrenomina<EmployeeAbsenceRequests> _employeeAbsenceRequestsRepository;
 
         private readonly IBaseServicePrenomina<Models.Prenomina.Period> _periodService;
         private readonly IBaseRepository<Key> _keyRepository;
@@ -40,6 +41,7 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<User> userRepository,
             IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepository,
             IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository,
+            IBaseRepositoryPrenomina<EmployeeAbsenceRequests> employeeAbsenceRequestsRepository,
             IBaseServicePrenomina<Models.Prenomina.Period> periodService,
             IBaseRepository<Key> keyRepository,
             IBaseRepository<Employee> employeeRepository,
@@ -54,6 +56,7 @@ namespace PrenominaApi.Services.Prenomina
             _userRepository = userRepository;
             _incidentApproverRepository = incidentApproverRepository;
             _assistanceIncidentApproverRepository = assistanceIncidentApproverRepository;
+            _employeeAbsenceRequestsRepository = employeeAbsenceRequestsRepository;
 
             _keyRepository = keyRepository;
             _employeeRepository = employeeRepository;
@@ -288,14 +291,33 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             // Incidencias pendientes (no aprobadas y no rechazadas) de esos códigos en la empresa.
-            // Se excluyen los permisos (TimeOffRequest) porque se aprueban en el flujo de solicitudes de ausencia.
             var pendingIncidents = _repository.GetByFilter(ai =>
                 ai.CompanyId == input.CompanyId &&
                 !ai.Approved &&
                 !ai.Rejected &&
-                !ai.TimeOffRequest &&
                 myApproverCodes.Contains(ai.IncidentCode)
             ).ToList();
+
+            if (pendingIncidents.Count == 0)
+            {
+                return Enumerable.Empty<PendingIncidenceApprovalOutput>();
+            }
+
+            // Los permisos que se registraron como solicitud de ausencia se aprueban en el flujo de
+            // "Solicitudes de ausencia"; aquí solo se descartan esos. Los permisos que requieren
+            // aprobación pero NO tienen una solicitud asociada sí deben aparecer en esta lista para
+            // no quedar atascados (no aparecían en ninguna de las dos pestañas).
+            var absenceRequests = _employeeAbsenceRequestsRepository
+                .GetByFilter(r => r.CompanyId == input.CompanyId)
+                .ToList();
+
+            pendingIncidents = pendingIncidents
+                .Where(ai => !ai.TimeOffRequest || !absenceRequests.Any(r =>
+                    r.EmployeeCode == ai.EmployeeCode &&
+                    r.IncidentCode == ai.IncidentCode &&
+                    ai.Date >= r.StartDate &&
+                    ai.Date <= r.EndDate))
+                .ToList();
 
             if (pendingIncidents.Count == 0)
             {
