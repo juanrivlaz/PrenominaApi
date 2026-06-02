@@ -32,7 +32,6 @@ namespace PrenominaApi.Services.Utilities.ReportPdf
 
             document.Add(new Paragraph(title)
                 .SetFontSize(15)
-                .SetBold()
                 .SetMarginBottom(2));
 
             if (!string.IsNullOrWhiteSpace(subtitle))
@@ -78,7 +77,6 @@ namespace PrenominaApi.Services.Utilities.ReportPdf
             return new Cell()
                 .Add(new Paragraph(value ?? string.Empty)
                     .SetFontSize(8)
-                    .SetBold()
                     .SetFontColor(ColorConstants.WHITE)
                     .SetTextAlignment(TextAlignment.LEFT))
                 .SetBackgroundColor(HeaderBackground)
