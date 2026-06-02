@@ -149,6 +149,7 @@ builder.Services.AddSingleton<AdditionalPayPdfService>();
 builder.Services.AddSingleton<PermissionPdfService>();
 builder.Services.AddSingleton<AttendancePdfService>();
 builder.Services.AddSingleton<ReportPdfService>();
+builder.Services.AddScoped<ReportHeaderService>();
 
 // Inject Excel Services
 builder.Services.AddScoped<IExcelGenerator, ReportDelaysExcelGenerator>();

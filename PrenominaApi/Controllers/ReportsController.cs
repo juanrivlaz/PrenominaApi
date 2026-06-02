@@ -22,17 +22,20 @@ namespace PrenominaApi.Controllers
         private readonly IBaseServicePrenomina<SysConfigReports> _service;
         private readonly ExcelReportService _excelReportService;
         private readonly ReportPdfService _reportPdfService;
+        private readonly ReportHeaderService _reportHeaderService;
         private readonly OvertimeAccumulationService _overtimeAccumulationService;
         public ReportsController(
             IBaseServicePrenomina<SysConfigReports> service,
             ExcelReportService excelReportService,
             ReportPdfService reportPdfService,
+            ReportHeaderService reportHeaderService,
             OvertimeAccumulationService overtimeAccumulationService
         )
         {
             _service = service;
             _excelReportService = excelReportService;
             _reportPdfService = reportPdfService;
+            _reportHeaderService = reportHeaderService;
             _overtimeAccumulationService = overtimeAccumulationService;
         }
 
@@ -257,7 +260,7 @@ namespace PrenominaApi.Controllers
                 $"{item.TimeDelayed} min"
             }).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Retardos", BuildSubtitle(getReport), headers, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Retardos", BuildHeader(getReport), BuildSubtitle(getReport), headers, rows);
 
             return this.File(pdf, "application/pdf", "reporte_retardos.pdf");
         }
@@ -275,7 +278,7 @@ namespace PrenominaApi.Controllers
 
             var rows = summary.Select(BuildOvertimeSummaryRow).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Horas Extras", BuildSubtitle(getReport), OvertimeSummaryHeaders, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Horas Extras", BuildHeader(getReport), BuildSubtitle(getReport), OvertimeSummaryHeaders, rows);
 
             return this.File(pdf, "application/pdf", "reporte_horas_extras.pdf");
         }
@@ -298,7 +301,7 @@ namespace PrenominaApi.Controllers
                 item.HoursWorked.ToString()
             }).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Horas Laboradas", BuildSubtitle(getReport), headers, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Horas Laboradas", BuildHeader(getReport), BuildSubtitle(getReport), headers, rows);
 
             return this.File(pdf, "application/pdf", "reporte_horas_laboradas.pdf");
         }
@@ -320,7 +323,7 @@ namespace PrenominaApi.Controllers
                 item.CheckOut?.ToString("HH:mm") ?? ""
             }).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Asistencia", BuildSubtitle(getReport), headers, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Asistencia", BuildHeader(getReport), BuildSubtitle(getReport), headers, rows);
 
             return this.File(pdf, "application/pdf", "reporte_asistencia.pdf");
         }
@@ -344,7 +347,7 @@ namespace PrenominaApi.Controllers
                 item.CreatedAt.ToString("dd/MM/yyyy")
             }).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Incidencias", BuildSubtitle(getReport), headers, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Incidencias", BuildHeader(getReport), BuildSubtitle(getReport), headers, rows);
 
             return this.File(pdf, "application/pdf", "reporte_incidencias.pdf");
         }
@@ -366,18 +369,25 @@ namespace PrenominaApi.Controllers
                 item.EndDate.ToString("dd/MM/yyyy")
             }).ToList();
 
-            var pdf = _reportPdfService.Generate("Reporte de Inasistencias", BuildSubtitle(getReport), headers, rows);
+            var pdf = _reportPdfService.Generate("Reporte de Inasistencias", BuildHeader(getReport), BuildSubtitle(getReport), headers, rows);
 
             return this.File(pdf, "application/pdf", "reporte_abandono.pdf");
         }
 
+        private ReportPdfHeaderContext BuildHeader(GetReports getReport)
+        {
+            return _reportHeaderService.Build(
+                getReport.Company,
+                getReport.Tenant,
+                getReport.TypeNomina,
+                getReport.NumPeriod);
+        }
+
+        // El tipo de nómina y el periodo ya se muestran en el encabezado; aquí solo se agregan
+        // los filtros adicionales (rango de fechas y búsqueda) cuando aplican.
         private static string BuildSubtitle(GetReports getReport)
         {
-            var parts = new List<string>
-            {
-                $"Tipo de nomina: {getReport.TypeNomina}",
-                $"Periodo: {getReport.NumPeriod}"
-            };
+            var parts = new List<string>();
 
             if (getReport.FilterDates != null)
             {

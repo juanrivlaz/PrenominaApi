@@ -1,6 +1,7 @@
 using iText.Kernel.Colors;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Event;
 using iText.Layout;
 using iText.Layout.Borders;
 using iText.Layout.Element;
@@ -19,6 +20,7 @@ namespace PrenominaApi.Services.Utilities.ReportPdf
 
         public byte[] Generate(
             string title,
+            ReportPdfHeaderContext headerContext,
             string subtitle,
             IReadOnlyList<string> headers,
             IReadOnlyList<string[]> rows)
@@ -28,11 +30,16 @@ namespace PrenominaApi.Services.Utilities.ReportPdf
             using PdfDocument pdf = new PdfDocument(writer);
 
             Document document = new Document(pdf, PageSize.A4.Rotate());
-            document.SetMargins(24, 24, 24, 24);
+            document.SetMargins(101, 24, 30, 24);
 
-            document.Add(new Paragraph(title)
-                .SetFontSize(15)
-                .SetMarginBottom(2));
+            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new ReportPdfHeader(
+                document,
+                headerContext.CompanyName,
+                headerContext.TenantName,
+                headerContext.TypeNom,
+                headerContext.Period,
+                headerContext.RfcInfo,
+                title));
 
             if (!string.IsNullOrWhiteSpace(subtitle))
             {
