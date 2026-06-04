@@ -96,7 +96,10 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
                         checkOut = "";
                     }
 
-                    table.AddCell(AddCellToAttendace($"{checkEntry} {divider} {checkOut}", fontSize, true));
+                    // No spaces around the divider so "entry/exit" is a single token without
+                    // break points: iText keeps check-in and check-out together on one line
+                    // instead of splitting them when the column is narrow.
+                    table.AddCell(AddCellToAttendace($"{checkEntry}{divider}{checkOut}", fontSize, true));
                 }
                 //header firma
                 table.AddHeaderCell(AddCellToHeadToAttendance("", fontSize, 1, TextAlignment.CENTER, 1, false, false, true, false));
