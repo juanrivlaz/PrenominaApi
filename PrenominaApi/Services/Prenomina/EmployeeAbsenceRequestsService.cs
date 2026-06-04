@@ -20,6 +20,8 @@ namespace PrenominaApi.Services.Prenomina
         public readonly GlobalPropertyService _globalPropertyService;
         private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
         private readonly IBaseRepositoryPrenomina<AssistanceIncident> _assistanceIncidentRepository;
+        private readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepository;
+        private readonly IBaseRepositoryPrenomina<AssistanceIncidentApprover> _assistanceIncidentApproverRepository;
 
         public EmployeeAbsenceRequestsService(
             IBaseRepositoryPrenomina<EmployeeAbsenceRequests> repository,
@@ -28,7 +30,9 @@ namespace PrenominaApi.Services.Prenomina
             GlobalPropertyService globalPropertyService,
             PermissionPdfService permissionPdfService,
             IBaseServicePrenomina<SystemConfig> sysConfigService,
-            IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository
+            IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository,
+            IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepository,
+            IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository
         ) : base(repository)
         {
             _keyRepository = keyRepository;
@@ -37,6 +41,8 @@ namespace PrenominaApi.Services.Prenomina
             _permissionPdfService = permissionPdfService;
             _sysConfigService = sysConfigService;
             _assistanceIncidentRepository = assistanceIncidentRepository;
+            _incidentApproverRepository = incidentApproverRepository;
+            _assistanceIncidentApproverRepository = assistanceIncidentApproverRepository;
         }
 
         public IEnumerable<EmployeeAbsenceRequestOutput> ExecuteProcess(decimal companyId)
@@ -56,12 +62,54 @@ namespace PrenominaApi.Services.Prenomina
 
             var keys = keyEmployee.Where(k => k.Company == companyId && employeeCodes.Contains((int)k.Codigo)).ToList();
 
+            // ===== Progreso de aprobación múltiple =====
+            // Aprobadores configurados por código de incidencia presente en las solicitudes.
+            var incidentCodes = requests.Select(r => r.IncidentCode).Distinct().ToList();
+            var approversByCode = _incidentApproverRepository
+                .GetByFilter(ia => incidentCodes.Contains(ia.IncidentCode))
+                .GroupBy(ia => ia.IncidentCode)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Incidencias relacionadas a las solicitudes (por empresa, empleado y código) para
+            // contar las aprobaciones ya registradas (se reutiliza el mecanismo de aprobadores
+            // de incidencias). El emparejamiento por rango de fechas se hace en memoria.
+            var relatedIncidents = _assistanceIncidentRepository
+                .GetByFilter(ai => ai.CompanyId == companyId && employeeCodes.Contains(ai.EmployeeCode) && incidentCodes.Contains(ai.IncidentCode))
+                .ToList();
+
+            var relatedIncidentIds = relatedIncidents.Select(i => i.Id).ToHashSet();
+            var approvalsByIncident = _assistanceIncidentApproverRepository
+                .GetByFilter(a => relatedIncidentIds.Contains(a.AssistanceIncidentId))
+                .GroupBy(a => a.AssistanceIncidentId)
+                .ToDictionary(g => g.Key, g => g.Select(a => a.IncidentApproverId).Distinct().ToList());
+
+            Guid? currentUserId = Guid.TryParse(_globalPropertyService.UserId, out var uid) ? uid : null;
+
             var result = requests.Select(r =>
             {
                 var key = keys.FirstOrDefault(k => k.Codigo == r.EmployeeCode);
                 var employee = key?.Employee;
                 var activity = key?.Tabulator.Activity;
                 var incident = r.IncidentCodeItem;
+
+                approversByCode.TryGetValue(r.IncidentCode, out var codeApprovers);
+                var totalApprovers = codeApprovers?.Count ?? 0;
+                var approverIds = codeApprovers?.Select(a => a.Id).ToHashSet() ?? new HashSet<Guid>();
+
+                // Incidencias de esta solicitud (mismo empleado/código dentro del rango de fechas).
+                var requestIncidentIds = relatedIncidents
+                    .Where(ai => ai.EmployeeCode == r.EmployeeCode && ai.IncidentCode == r.IncidentCode && ai.Date >= r.StartDate && ai.Date <= r.EndDate)
+                    .Select(ai => ai.Id)
+                    .ToList();
+
+                // Aprobadores (válidos) que ya registraron su aprobación en la solicitud.
+                var approvedApproverIds = requestIncidentIds
+                    .SelectMany(id => approvalsByIncident.TryGetValue(id, out var list) ? list : Enumerable.Empty<Guid>())
+                    .Where(id => approverIds.Contains(id))
+                    .Distinct()
+                    .ToList();
+
+                var myApprover = codeApprovers?.FirstOrDefault(a => currentUserId != null && a.UserId == currentUserId);
 
                 return new EmployeeAbsenceRequestOutput
                 {
@@ -75,7 +123,12 @@ namespace PrenominaApi.Services.Prenomina
                     EndDate = r.EndDate,
                     Notes = r.Notes,
                     Status = r.Status,
-                    CreatedAt = r.CreatedAt
+                    CreatedAt = r.CreatedAt,
+                    RequiresApproval = totalApprovers > 0,
+                    TotalApprovers = totalApprovers,
+                    ApprovedCount = approvedApproverIds.Count,
+                    AlreadyApprovedByMe = myApprover != null && approvedApproverIds.Contains(myApprover.Id),
+                    CanApprove = totalApprovers == 0 || myApprover != null,
                 };
             });
 
@@ -124,51 +177,160 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("La solicitud de ausencia no existe");
             }
 
-            item.Status = changeStatus.Status;
-            item.UpdatedAt = DateTime.UtcNow;
-            _repository.Update(item);
-            _repository.Save();
+            // Aprobadores configurados para el código de incidencia de la solicitud.
+            var approvers = _incidentApproverRepository.GetByFilter(ia => ia.IncidentCode == item.IncidentCode).ToList();
+            var totalApprovers = approvers.Count;
 
-            // Propagar el resultado de la aprobación a las incidencias relacionadas para que el
-            // permiso sólo se refleje en la prenómina una vez aprobado. La solicitud se relaciona
-            // con las incidencias por empresa, empleado, código de incidencia y rango de fechas.
-            if (changeStatus.Status == AbsenceRequestStatus.Approved || changeStatus.Status == AbsenceRequestStatus.Rejected)
+            var relatedIncidents = GetRelatedIncidents(item);
+            var now = DateTime.UtcNow;
+            Guid? currentUserId = Guid.TryParse(_globalPropertyService.UserId, out var uid) ? uid : null;
+
+            if (changeStatus.Status == AbsenceRequestStatus.Rejected)
             {
-                var relatedIncidents = _assistanceIncidentRepository.GetByFilter(ai =>
-                    ai.CompanyId == item.CompanyId &&
-                    ai.EmployeeCode == item.EmployeeCode &&
-                    ai.IncidentCode == item.IncidentCode &&
-                    ai.Date >= item.StartDate &&
-                    ai.Date <= item.EndDate
-                ).ToList();
+                // Cualquier aprobador configurado puede rechazar la solicitud completa.
+                if (totalApprovers > 0)
+                {
+                    EnsureIsApprover(approvers, currentUserId);
+                }
 
-                var now = DateTime.UtcNow;
-                var approved = changeStatus.Status == AbsenceRequestStatus.Approved;
+                item.Status = AbsenceRequestStatus.Rejected;
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+
+                PropagateToIncidents(relatedIncidents, false, now);
+                return true;
+            }
+
+            if (changeStatus.Status == AbsenceRequestStatus.Approved)
+            {
+                // Sin aprobadores configurados: aprobación directa (comportamiento histórico).
+                if (totalApprovers == 0 || relatedIncidents.Count == 0)
+                {
+                    item.Status = AbsenceRequestStatus.Approved;
+                    item.UpdatedAt = now;
+                    _repository.Update(item);
+                    _repository.Save();
+
+                    PropagateToIncidents(relatedIncidents, true, now);
+                    return true;
+                }
+
+                // Con aprobadores: el usuario actual debe ser aprobador y se registra su aprobación.
+                var myApprover = EnsureIsApprover(approvers, currentUserId);
 
                 foreach (var incident in relatedIncidents)
                 {
-                    incident.Approved = approved;
-                    incident.Rejected = !approved;
-                    incident.UpdatedAt = now;
+                    var alreadyApproved = _assistanceIncidentApproverRepository
+                        .GetByFilter(a => a.AssistanceIncidentId == incident.Id && a.IncidentApproverId == myApprover.Id)
+                        .Any();
 
-                    if (!approved)
+                    if (!alreadyApproved)
                     {
-                        incident.RejectedAt = now;
+                        _assistanceIncidentApproverRepository.Create(new AssistanceIncidentApprover
+                        {
+                            AssistanceIncidentId = incident.Id,
+                            IncidentApproverId = myApprover.Id,
+                            ApprovalDate = now,
+                            AssistanceIncident = incident,
+                            IncidentApprover = myApprover,
+                        });
                     }
-                    else
-                    {
-                        incident.RejectedAt = null;
-                        incident.RejectionComment = null;
-                        incident.RejectedByUserId = null;
-                    }
+                }
+                _assistanceIncidentApproverRepository.Save();
 
-                    _assistanceIncidentRepository.Update(incident);
+                // La solicitud queda aprobada sólo cuando TODOS los aprobadores configurados aprobaron.
+                var approverIds = approvers.Select(a => a.Id).ToHashSet();
+                var incidentIds = relatedIncidents.Select(i => i.Id).ToHashSet();
+                var approvedCount = _assistanceIncidentApproverRepository
+                    .GetByFilter(a => incidentIds.Contains(a.AssistanceIncidentId) && approverIds.Contains(a.IncidentApproverId))
+                    .Select(a => a.IncidentApproverId)
+                    .Distinct()
+                    .Count();
+
+                if (approvedCount >= totalApprovers)
+                {
+                    item.Status = AbsenceRequestStatus.Approved;
+                    item.UpdatedAt = now;
+                    _repository.Update(item);
+                    _repository.Save();
+
+                    PropagateToIncidents(relatedIncidents, true, now);
+                }
+                else
+                {
+                    // Aprobación parcial: la solicitud sigue pendiente hasta que aprueben los demás.
+                    item.UpdatedAt = now;
+                    _repository.Update(item);
+                    _repository.Save();
                 }
 
-                _assistanceIncidentRepository.Save();
+                return true;
             }
 
+            // Otros estados (p. ej. volver a Pendiente).
+            item.Status = changeStatus.Status;
+            item.UpdatedAt = now;
+            _repository.Update(item);
+            _repository.Save();
             return true;
+        }
+
+        // Incidencias relacionadas a una solicitud por empresa, empleado, código y rango de fechas.
+        private List<AssistanceIncident> GetRelatedIncidents(EmployeeAbsenceRequests item)
+        {
+            return _assistanceIncidentRepository.GetByFilter(ai =>
+                ai.CompanyId == item.CompanyId &&
+                ai.EmployeeCode == item.EmployeeCode &&
+                ai.IncidentCode == item.IncidentCode &&
+                ai.Date >= item.StartDate &&
+                ai.Date <= item.EndDate
+            ).ToList();
+        }
+
+        // Verifica que el usuario actual sea aprobador del código; devuelve su registro de aprobador.
+        private IncidentApprover EnsureIsApprover(List<IncidentApprover> approvers, Guid? currentUserId)
+        {
+            var myApprover = currentUserId != null ? approvers.FirstOrDefault(a => a.UserId == currentUserId) : null;
+
+            if (myApprover == null)
+            {
+                throw new BadHttpRequestException("No tienes autorización para aprobar o rechazar esta solicitud.");
+            }
+
+            return myApprover;
+        }
+
+        // Propaga el resultado a las incidencias relacionadas para que el permiso sólo se refleje
+        // en la prenómina una vez aprobado.
+        private void PropagateToIncidents(List<AssistanceIncident> relatedIncidents, bool approved, DateTime now)
+        {
+            if (relatedIncidents.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var incident in relatedIncidents)
+            {
+                incident.Approved = approved;
+                incident.Rejected = !approved;
+                incident.UpdatedAt = now;
+
+                if (!approved)
+                {
+                    incident.RejectedAt = now;
+                }
+                else
+                {
+                    incident.RejectedAt = null;
+                    incident.RejectionComment = null;
+                    incident.RejectedByUserId = null;
+                }
+
+                _assistanceIncidentRepository.Update(incident);
+            }
+
+            _assistanceIncidentRepository.Save();
         }
 
         public AbsenceRequestPdf ExecuteProcess(DownloadRequest downloadRequest)
