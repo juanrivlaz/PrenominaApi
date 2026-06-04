@@ -337,6 +337,54 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPost("approve-incidence-group")]
+        public ActionResult<IEnumerable<AssistanceIncident>> ApproveIncidenceGroup([FromBody] ApproveIncidenceGroup input)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            input.CompanyId = companyId;
+            input.UserId = userId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<ApproveIncidenceGroup, List<AssistanceIncident>>(input);
+
+            return Ok(result);
+        }
+
+        [HttpPost("reject-incidence-group")]
+        public ActionResult<IEnumerable<AssistanceIncident>> RejectIncidenceGroup([FromBody] RejectIncidenceGroup input)
+        {
+            string company = HttpContext.Items["companySelected"]?.ToString() ?? "";
+            string userId = HttpContext.User.FindFirst("UserId")?.Value ?? "";
+            int companyId = int.Parse(company ?? "0");
+
+            if (companyId <= 0)
+            {
+                throw new BadHttpRequestException("Es necesario seleccionar una empresa");
+            }
+            else if (String.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("Unauthorized");
+            }
+
+            input.CompanyId = companyId;
+            input.UserId = userId;
+
+            var result = _assistanceIncidentService.ExecuteProcess<RejectIncidenceGroup, List<AssistanceIncident>>(input);
+
+            return Ok(result);
+        }
+
         [HttpPost("fix-night-shift-eos")]
         public ActionResult<FixNightShiftEoSResult> FixNightShiftEoS()
         {

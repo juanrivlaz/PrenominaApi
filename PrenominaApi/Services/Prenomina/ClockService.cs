@@ -512,6 +512,13 @@ namespace PrenominaApi.Services.Prenomina
             var usersJson = await RunBridge(source.Ip, source.Port ?? 4370, "getfullusers");
             var users = JsonSerializer.Deserialize<List<ModelClock.User>>(usersJson) ?? new List<ModelClock.User>();
 
+            // Si se indicaron usuarios específicos, sincronizar únicamente esos registros.
+            if (input.EnrollNumbers != null && input.EnrollNumbers.Count > 0)
+            {
+                var selected = input.EnrollNumbers.ToHashSet();
+                users = users.Where(u => selected.Contains(u.EnrollNumber)).ToList();
+            }
+
             if (users.Count == 0)
             {
                 return new SyncUsersResult { TotalUsers = 0, Message = "El reloj origen no tiene usuarios para sincronizar." };
@@ -528,6 +535,16 @@ namespace PrenominaApi.Services.Prenomina
             };
         }
 
+        public IEnumerable<ClockUser> ExecuteProcess(GetDbClockUsers input)
+        {
+            var context = _repository.GetDbContext();
+
+            return context.clockUsers
+                .Where(u => u.DeletedAt == null)
+                .OrderBy(u => u.EnrollNumber)
+                .ToList();
+        }
+
         public async Task<SyncUsersResult> ExecuteProcess(SyncDbToClock input)
         {
             var clock = _repository.GetById(input.ClockId);
@@ -538,7 +555,16 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             var context = _repository.GetDbContext();
-            var dbUsers = context.clockUsers.Include(u => u.UserFingers).ToList();
+            var dbUsersQuery = context.clockUsers.Include(u => u.UserFingers).Where(u => u.DeletedAt == null);
+
+            // Si se indicaron usuarios específicos, sincronizar únicamente esos registros.
+            if (input.EnrollNumbers != null && input.EnrollNumbers.Count > 0)
+            {
+                var selected = input.EnrollNumbers.ToHashSet();
+                dbUsersQuery = dbUsersQuery.Where(u => selected.Contains(u.EnrollNumber));
+            }
+
+            var dbUsers = dbUsersQuery.ToList();
 
             if (dbUsers.Count == 0)
             {

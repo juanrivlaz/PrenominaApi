@@ -111,12 +111,21 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpGet("db-users")]
+        public ActionResult<IEnumerable<ClockUser>> GetDbUsers()
+        {
+            var result = _service.ExecuteProcess<GetDbClockUsers, IEnumerable<ClockUser>>(new GetDbClockUsers());
+
+            return Ok(result);
+        }
+
         [HttpPost("sync-db-to-clock/{clockId}")]
-        public async Task<ActionResult<SyncUsersResult>> SyncDbToClock(string clockId)
+        public async Task<ActionResult<SyncUsersResult>> SyncDbToClock(string clockId, [FromBody] SyncSelectedUsers? body = null)
         {
             var result = await _service.ExecuteProcess<SyncDbToClock, Task<SyncUsersResult>>(new SyncDbToClock
             {
-                ClockId = Guid.Parse(clockId)
+                ClockId = Guid.Parse(clockId),
+                EnrollNumbers = body?.EnrollNumbers
             });
 
             return Ok(result);

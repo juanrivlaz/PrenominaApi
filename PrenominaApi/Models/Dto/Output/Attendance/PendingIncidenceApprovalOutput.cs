@@ -6,6 +6,9 @@ namespace PrenominaApi.Models.Dto.Output.Attendance
     public class PendingIncidenceApprovalOutput
     {
         public Guid Id { get; set; }
+        // Identificador del grupo de permiso (mismo valor para incidencias registradas juntas
+        // desde el menú de permisos en varios días). Null cuando es una incidencia individual.
+        public Guid? RequestGroupId { get; set; }
         public int EmployeeCode { get; set; }
         public string EmployeeName { get; set; } = string.Empty;
         public string IncidentCode { get; set; } = string.Empty;

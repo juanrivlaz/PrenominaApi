@@ -364,6 +364,7 @@ namespace PrenominaApi.Services.Prenomina
                 return new PendingIncidenceApprovalOutput
                 {
                     Id = incident.Id,
+                    RequestGroupId = incident.RequestGroupId,
                     EmployeeCode = incident.EmployeeCode,
                     EmployeeName = employees.TryGetValue(incident.EmployeeCode, out var name) ? name : string.Empty,
                     IncidentCode = incident.IncidentCode,
@@ -521,6 +522,63 @@ namespace PrenominaApi.Services.Prenomina
             _auditLogRepository.Save();
 
             return incident;
+        }
+
+        public List<AssistanceIncident> ExecuteProcess(ApproveIncidenceGroup input)
+        {
+            if (string.IsNullOrEmpty(input.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            // Incidencias del grupo que siguen pendientes (no aprobadas ni rechazadas).
+            var groupIncidents = _repository.GetByFilter(i =>
+                i.RequestGroupId == input.RequestGroupId &&
+                i.CompanyId == input.CompanyId &&
+                !i.Approved && !i.Rejected
+            ).ToList();
+
+            if (groupIncidents.Count == 0)
+            {
+                throw new BadHttpRequestException("No hay incidencias pendientes en este grupo.");
+            }
+
+            // Se reutiliza la lógica individual para cada incidencia del grupo.
+            return groupIncidents.Select(incident => ExecuteProcess(new ApproveIncidence
+            {
+                AssistanceIncidentId = incident.Id,
+                CompanyId = input.CompanyId,
+                UserId = input.UserId,
+            })).ToList();
+        }
+
+        public List<AssistanceIncident> ExecuteProcess(RejectIncidenceGroup input)
+        {
+            if (string.IsNullOrEmpty(input.UserId))
+            {
+                throw new BadHttpRequestException("Unauthorized");
+            }
+
+            // Incidencias del grupo que siguen pendientes (no aprobadas ni rechazadas).
+            var groupIncidents = _repository.GetByFilter(i =>
+                i.RequestGroupId == input.RequestGroupId &&
+                i.CompanyId == input.CompanyId &&
+                !i.Approved && !i.Rejected
+            ).ToList();
+
+            if (groupIncidents.Count == 0)
+            {
+                throw new BadHttpRequestException("No hay incidencias pendientes en este grupo.");
+            }
+
+            // Se reutiliza la lógica individual para cada incidencia del grupo.
+            return groupIncidents.Select(incident => ExecuteProcess(new RejectIncidence
+            {
+                AssistanceIncidentId = incident.Id,
+                Comment = input.Comment,
+                CompanyId = input.CompanyId,
+                UserId = input.UserId,
+            })).ToList();
         }
 
         public bool ExecuteProcess(DeleteIncidentsToEmployee deleteIncidentsToEmployee)
