@@ -62,17 +62,17 @@ namespace PrenominaApi.Services.Prenomina
 
             var keys = keyEmployee.Where(k => k.Company == companyId && employeeCodes.Contains((int)k.Codigo)).ToList();
 
-            // ===== Progreso de aprobación múltiple =====
-            // Aprobadores configurados por código de incidencia presente en las solicitudes.
+            // ===== Multi-approval progress =====
+            // Approvers configured per incidence code present in the requests.
             var incidentCodes = requests.Select(r => r.IncidentCode).Distinct().ToList();
             var approversByCode = _incidentApproverRepository
                 .GetByFilter(ia => incidentCodes.Contains(ia.IncidentCode))
                 .GroupBy(ia => ia.IncidentCode)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Incidencias relacionadas a las solicitudes (por empresa, empleado y código) para
-            // contar las aprobaciones ya registradas (se reutiliza el mecanismo de aprobadores
-            // de incidencias). El emparejamiento por rango de fechas se hace en memoria.
+            // Incidences related to the requests (by company, employee and code) to count the
+            // approvals already registered (the incidence approvers mechanism is reused).
+            // The date-range matching is done in memory.
             var relatedIncidents = _assistanceIncidentRepository
                 .GetByFilter(ai => ai.CompanyId == companyId && employeeCodes.Contains(ai.EmployeeCode) && incidentCodes.Contains(ai.IncidentCode))
                 .ToList();
@@ -96,13 +96,13 @@ namespace PrenominaApi.Services.Prenomina
                 var totalApprovers = codeApprovers?.Count ?? 0;
                 var approverIds = codeApprovers?.Select(a => a.Id).ToHashSet() ?? new HashSet<Guid>();
 
-                // Incidencias de esta solicitud (mismo empleado/código dentro del rango de fechas).
+                // Incidences of this request (same employee/code within the date range).
                 var requestIncidentIds = relatedIncidents
                     .Where(ai => ai.EmployeeCode == r.EmployeeCode && ai.IncidentCode == r.IncidentCode && ai.Date >= r.StartDate && ai.Date <= r.EndDate)
                     .Select(ai => ai.Id)
                     .ToList();
 
-                // Aprobadores (válidos) que ya registraron su aprobación en la solicitud.
+                // Valid approvers that already registered their approval on the request.
                 var approvedApproverIds = requestIncidentIds
                     .SelectMany(id => approvalsByIncident.TryGetValue(id, out var list) ? list : Enumerable.Empty<Guid>())
                     .Where(id => approverIds.Contains(id))
@@ -177,7 +177,7 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("La solicitud de ausencia no existe");
             }
 
-            // Aprobadores configurados para el código de incidencia de la solicitud.
+            // Approvers configured for the request's incidence code.
             var approvers = _incidentApproverRepository.GetByFilter(ia => ia.IncidentCode == item.IncidentCode).ToList();
             var totalApprovers = approvers.Count;
 
@@ -187,7 +187,7 @@ namespace PrenominaApi.Services.Prenomina
 
             if (changeStatus.Status == AbsenceRequestStatus.Rejected)
             {
-                // Cualquier aprobador configurado puede rechazar la solicitud completa.
+                // Any configured approver can reject the whole request.
                 if (totalApprovers > 0)
                 {
                     EnsureIsApprover(approvers, currentUserId);
@@ -204,7 +204,7 @@ namespace PrenominaApi.Services.Prenomina
 
             if (changeStatus.Status == AbsenceRequestStatus.Approved)
             {
-                // Sin aprobadores configurados: aprobación directa (comportamiento histórico).
+                // No approvers configured: direct approval (legacy behavior).
                 if (totalApprovers == 0 || relatedIncidents.Count == 0)
                 {
                     item.Status = AbsenceRequestStatus.Approved;
@@ -216,7 +216,7 @@ namespace PrenominaApi.Services.Prenomina
                     return true;
                 }
 
-                // Con aprobadores: el usuario actual debe ser aprobador y se registra su aprobación.
+                // With approvers: the current user must be an approver and their approval is registered.
                 var myApprover = EnsureIsApprover(approvers, currentUserId);
 
                 foreach (var incident in relatedIncidents)
@@ -239,7 +239,7 @@ namespace PrenominaApi.Services.Prenomina
                 }
                 _assistanceIncidentApproverRepository.Save();
 
-                // La solicitud queda aprobada sólo cuando TODOS los aprobadores configurados aprobaron.
+                // The request is approved only when ALL configured approvers have approved.
                 var approverIds = approvers.Select(a => a.Id).ToHashSet();
                 var incidentIds = relatedIncidents.Select(i => i.Id).ToHashSet();
                 var approvedCount = _assistanceIncidentApproverRepository
@@ -259,7 +259,7 @@ namespace PrenominaApi.Services.Prenomina
                 }
                 else
                 {
-                    // Aprobación parcial: la solicitud sigue pendiente hasta que aprueben los demás.
+                    // Partial approval: the request stays pending until the others approve.
                     item.UpdatedAt = now;
                     _repository.Update(item);
                     _repository.Save();
@@ -268,7 +268,7 @@ namespace PrenominaApi.Services.Prenomina
                 return true;
             }
 
-            // Otros estados (p. ej. volver a Pendiente).
+            // Other statuses (e.g. back to Pending).
             item.Status = changeStatus.Status;
             item.UpdatedAt = now;
             _repository.Update(item);
@@ -276,7 +276,7 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
 
-        // Incidencias relacionadas a una solicitud por empresa, empleado, código y rango de fechas.
+        // Incidences related to a request by company, employee, code and date range.
         private List<AssistanceIncident> GetRelatedIncidents(EmployeeAbsenceRequests item)
         {
             return _assistanceIncidentRepository.GetByFilter(ai =>
@@ -288,7 +288,7 @@ namespace PrenominaApi.Services.Prenomina
             ).ToList();
         }
 
-        // Verifica que el usuario actual sea aprobador del código; devuelve su registro de aprobador.
+        // Verifies the current user is an approver of the code; returns their approver record.
         private IncidentApprover EnsureIsApprover(List<IncidentApprover> approvers, Guid? currentUserId)
         {
             var myApprover = currentUserId != null ? approvers.FirstOrDefault(a => a.UserId == currentUserId) : null;
@@ -301,8 +301,8 @@ namespace PrenominaApi.Services.Prenomina
             return myApprover;
         }
 
-        // Propaga el resultado a las incidencias relacionadas para que el permiso sólo se refleje
-        // en la prenómina una vez aprobado.
+        // Propagates the result to the related incidences so the permit is only reflected
+        // in payroll once approved.
         private void PropagateToIncidents(List<AssistanceIncident> relatedIncidents, bool approved, DateTime now)
         {
             if (relatedIncidents.Count == 0)

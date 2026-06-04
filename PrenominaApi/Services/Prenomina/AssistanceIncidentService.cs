@@ -531,7 +531,7 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("Unauthorized");
             }
 
-            // Incidencias del grupo que siguen pendientes (no aprobadas ni rechazadas).
+            // Group incidences that are still pending (neither approved nor rejected).
             var groupIncidents = _repository.GetByFilter(i =>
                 i.RequestGroupId == input.RequestGroupId &&
                 i.CompanyId == input.CompanyId &&
@@ -543,7 +543,7 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("No hay incidencias pendientes en este grupo.");
             }
 
-            // Se reutiliza la lógica individual para cada incidencia del grupo.
+            // The single-incidence logic is reused for each incidence in the group.
             return groupIncidents.Select(incident => ExecuteProcess(new ApproveIncidence
             {
                 AssistanceIncidentId = incident.Id,
@@ -559,7 +559,7 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("Unauthorized");
             }
 
-            // Incidencias del grupo que siguen pendientes (no aprobadas ni rechazadas).
+            // Group incidences that are still pending (neither approved nor rejected).
             var groupIncidents = _repository.GetByFilter(i =>
                 i.RequestGroupId == input.RequestGroupId &&
                 i.CompanyId == input.CompanyId &&
@@ -571,7 +571,7 @@ namespace PrenominaApi.Services.Prenomina
                 throw new BadHttpRequestException("No hay incidencias pendientes en este grupo.");
             }
 
-            // Se reutiliza la lógica individual para cada incidencia del grupo.
+            // The single-incidence logic is reused for each incidence in the group.
             return groupIncidents.Select(incident => ExecuteProcess(new RejectIncidence
             {
                 AssistanceIncidentId = incident.Id,

@@ -16,14 +16,14 @@ namespace PrenominaApi.Models.Dto.Output.EmployeeAbsenceRequest
         public AbsenceRequestStatus Status { get; set; }
         public required DateTime CreatedAt { get; set; }
 
-        // Flujo de aprobación múltiple: si el código de incidencia tiene aprobadores configurados,
-        // todos deben aprobar para que la solicitud quede aprobada.
+        // Multi-approval flow: if the incidence code has approvers configured,
+        // all of them must approve for the request to be approved.
         public bool RequiresApproval { get; set; }
         public int TotalApprovers { get; set; }
         public int ApprovedCount { get; set; }
         public bool AlreadyApprovedByMe { get; set; }
-        // Verdadero si el usuario actual puede aprobar/rechazar (no requiere aprobadores, o
-        // el usuario está configurado como aprobador del código de incidencia).
+        // True if the current user can approve/reject (no approvers required, or the user is
+        // configured as an approver of the incidence code).
         public bool CanApprove { get; set; }
     }
 }

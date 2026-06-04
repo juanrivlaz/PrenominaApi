@@ -1,15 +1,15 @@
 namespace PrenominaApi.Models.Dto.Input
 {
     /// <summary>
-    /// Sincroniza (escribe) los usuarios almacenados en la base de datos hacia un reloj.
+    /// Syncs (writes) the users stored in the database to a clock.
     /// </summary>
     public class SyncDbToClock
     {
         public Guid ClockId { get; set; }
 
         /// <summary>
-        /// Números de empleado (enroll) seleccionados para sincronizar.
-        /// Si es null o está vacío se sincronizan todos los usuarios.
+        /// Selected employee (enroll) numbers to sync.
+        /// If null or empty, all users are synced.
         /// </summary>
         public List<string>? EnrollNumbers { get; set; }
     }

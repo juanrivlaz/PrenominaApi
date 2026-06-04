@@ -8,6 +8,8 @@
         public required string Company { get; set; }
         public required DateOnly Date { get; set; }
         public required string IncidentCode { get; set; }
+        // External code of the incidence concept (equivalent to "Conc" in the APSI report).
+        public string NumConcept { get; set; } = string.Empty;
         public required string Column { get; set; }
         public required decimal BaseValue { get; set; }
         public required string Operator { get; set; }

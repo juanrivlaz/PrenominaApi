@@ -1,7 +1,7 @@
 namespace PrenominaApi.Models.Dto.Input
 {
     /// <summary>
-    /// Sincroniza (copia) los usuarios de un reloj origen hacia un reloj destino.
+    /// Syncs (copies) the users from a source clock to a target clock.
     /// </summary>
     public class SyncClockToClock
     {
@@ -9,8 +9,8 @@ namespace PrenominaApi.Models.Dto.Input
         public required Guid TargetClockId { get; set; }
 
         /// <summary>
-        /// Números de empleado (enroll) seleccionados para copiar.
-        /// Si es null o está vacío se copian todos los usuarios del reloj origen.
+        /// Selected employee (enroll) numbers to copy.
+        /// If null or empty, all users of the source clock are copied.
         /// </summary>
         public List<string>? EnrollNumbers { get; set; }
     }

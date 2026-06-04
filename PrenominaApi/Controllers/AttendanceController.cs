@@ -111,6 +111,10 @@ namespace PrenominaApi.Controllers
                 contentType = "application/pdf";
                 fileName = "additional_pay.pdf";
             }
+            else if (downloadAdditionalPay.TypeFileDownload == TypeFileDownload.APSI)
+            {
+                fileName = "additional_pay_apsi.xlsx";
+            }
 
             return this.File(
                 fileContents: result,

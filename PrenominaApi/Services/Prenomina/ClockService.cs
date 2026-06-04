@@ -512,7 +512,7 @@ namespace PrenominaApi.Services.Prenomina
             var usersJson = await RunBridge(source.Ip, source.Port ?? 4370, "getfullusers");
             var users = JsonSerializer.Deserialize<List<ModelClock.User>>(usersJson) ?? new List<ModelClock.User>();
 
-            // Si se indicaron usuarios específicos, sincronizar únicamente esos registros.
+            // If specific users were provided, sync only those records.
             if (input.EnrollNumbers != null && input.EnrollNumbers.Count > 0)
             {
                 var selected = input.EnrollNumbers.ToHashSet();
@@ -557,7 +557,7 @@ namespace PrenominaApi.Services.Prenomina
             var context = _repository.GetDbContext();
             var dbUsersQuery = context.clockUsers.Include(u => u.UserFingers).Where(u => u.DeletedAt == null);
 
-            // Si se indicaron usuarios específicos, sincronizar únicamente esos registros.
+            // If specific users were provided, sync only those records.
             if (input.EnrollNumbers != null && input.EnrollNumbers.Count > 0)
             {
                 var selected = input.EnrollNumbers.ToHashSet();

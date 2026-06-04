@@ -547,6 +547,7 @@ namespace PrenominaApi.Services
                     Company = "",
                     Date = incident.Date,
                     IncidentCode = incident.IncidentCode,
+                    NumConcept = incident.ItemIncidentCode?.ExternalCode ?? string.Empty,
                     Column = columnForOperation == ColumnForOperation.Salary ? "Empleado:Salario" : "Custom",
                     BaseValue = baseValue,
                     Operator = operatorSymbol,
@@ -603,7 +604,47 @@ namespace PrenominaApi.Services
                 return _additionalPayPdfService.Generate(items, company?.Name ?? "", $"RFC: {company!.RFC} | R. Patronal: {company.EmployerRegistration}");
             }
 
+            if (downloadAdditionalPay.TypeFileDownload == TypeFileDownload.APSI)
+            {
+                return GenerateApsiExcel(items);
+            }
+
             return GenerateAdditionalPayExcel(items);
+        }
+
+        // Excel with the APSI report structure (same as MakeNewReportDayOff in DayOffsService):
+        // Codigo | Conc | Importe. The Importe corresponds to the additional pay Total.
+        private static byte[] GenerateApsiExcel(IEnumerable<AdditionalPay> items)
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("APSI");
+            var index = 1;
+
+            worksheet.Cell($"A{index}").Value = "Codigo";
+            worksheet.Cell($"B{index}").Value = "Conc";
+            worksheet.Cell($"C{index}").Value = "Importe";
+
+            index++;
+
+            worksheet.Column("A").Width = 8;
+            worksheet.Column("A").Style.NumberFormat.Format = "0";
+            worksheet.Column("B").Width = 4;
+            worksheet.Column("B").Style.NumberFormat.Format = "0";
+            worksheet.Column("C").Width = 10;
+            worksheet.Column("C").Style.NumberFormat.Format = "0.00";
+
+            foreach (var item in items)
+            {
+                worksheet.Cell($"A{index}").Value = item.EmployeeCode;
+                worksheet.Cell($"B{index}").Value = item.NumConcept;
+                worksheet.Cell($"C{index}").Value = item.Total;
+
+                index += 1;
+            }
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            return stream.ToArray();
         }
 
         private static byte[] GenerateAdditionalPayExcel(IEnumerable<AdditionalPay> items)

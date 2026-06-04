@@ -1,13 +1,12 @@
 namespace PrenominaApi.Models.Dto.Input
 {
     /// <summary>
-    /// Cuerpo de la petición para sincronizar usuarios seleccionados.
+    /// Request body to sync selected users.
     /// </summary>
     public class SyncSelectedUsers
     {
         /// <summary>
-        /// Números de empleado (enroll) seleccionados. Si es null o está vacío
-        /// se sincronizan todos los usuarios.
+        /// Selected employee (enroll) numbers. If null or empty, all users are synced.
         /// </summary>
         public List<string>? EnrollNumbers { get; set; }
     }

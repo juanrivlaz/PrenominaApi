@@ -1,8 +1,8 @@
 namespace PrenominaApi.Models.Dto.Input.Attendance
 {
     /// <summary>
-    /// Rechaza TODAS las incidencias de un grupo de permiso (mismo RequestGroupId),
-    /// registradas juntas desde el menú de permisos.
+    /// Rejects ALL incidences of a permit group (same RequestGroupId),
+    /// registered together from the permits menu.
     /// </summary>
     public class RejectIncidenceGroup
     {

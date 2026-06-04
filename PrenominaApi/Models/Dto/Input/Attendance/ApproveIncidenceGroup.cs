@@ -1,8 +1,8 @@
 namespace PrenominaApi.Models.Dto.Input.Attendance
 {
     /// <summary>
-    /// Registra la aprobación del usuario actual sobre TODAS las incidencias de un grupo de
-    /// permiso (mismo RequestGroupId), registradas juntas desde el menú de permisos.
+    /// Registers the current user's approval over ALL incidences of a permit group
+    /// (same RequestGroupId), registered together from the permits menu.
     /// </summary>
     public class ApproveIncidenceGroup
     {
