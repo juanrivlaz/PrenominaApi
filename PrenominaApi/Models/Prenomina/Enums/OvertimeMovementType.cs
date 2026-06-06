@@ -38,6 +38,11 @@ namespace PrenominaApi.Models.Prenomina.Enums
         /// <summary>
         /// Registro externo de tiempo extra (de otro sistema)
         /// </summary>
-        ExternalEntry = 7
+        ExternalEntry = 7,
+
+        /// <summary>
+        /// Horas usadas para cubrir un permiso/ausencia (time-off)
+        /// </summary>
+        UsedForTimeOff = 8
     }
 }

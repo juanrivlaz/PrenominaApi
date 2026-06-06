@@ -601,6 +601,169 @@ namespace PrenominaApi.Services.Prenomina
         }
 
         /// <summary>
+        /// Obtiene los minutos acumulados disponibles de un empleado (0 si no tiene registro).
+        /// </summary>
+        public async Task<int> GetAvailableMinutes(int employeeCode, int companyId)
+        {
+            var accumulation = await _context.overtimeAccumulations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.EmployeeCode == employeeCode && a.CompanyId == companyId);
+
+            return accumulation?.AccumulatedMinutes ?? 0;
+        }
+
+        /// <summary>
+        /// Usa horas acumuladas para cubrir un día de permiso/ausencia, relacionando el
+        /// consumo con la incidencia para poder reintegrarlo si el permiso se cancela.
+        /// </summary>
+        public async Task<OvertimeOperationResult> UseForTimeOff(UseOvertimeForTimeOffInput input, int companyId, string? userId)
+        {
+            if (input.MinutesToUse <= 0)
+            {
+                return new OvertimeOperationResult
+                {
+                    Success = false,
+                    Message = "Los minutos a utilizar deben ser mayores a cero."
+                };
+            }
+
+            var accumulation = await _context.overtimeAccumulations
+                .FirstOrDefaultAsync(a => a.EmployeeCode == input.EmployeeCode && a.CompanyId == companyId);
+
+            if (accumulation == null || accumulation.AccumulatedMinutes < input.MinutesToUse)
+            {
+                return new OvertimeOperationResult
+                {
+                    Success = false,
+                    Message = "No hay suficientes horas acumuladas disponibles."
+                };
+            }
+
+            accumulation.AccumulatedMinutes -= input.MinutesToUse;
+            accumulation.UsedMinutes += input.MinutesToUse;
+            accumulation.UpdatedAt = DateTime.UtcNow;
+
+            var notes = $"Permiso del {input.TimeOffDate:dd/MM/yyyy}.";
+            if (!string.IsNullOrWhiteSpace(input.Notes))
+            {
+                notes = $"{notes} {input.Notes}";
+            }
+
+            var movementLog = new OvertimeMovementLog
+            {
+                OvertimeAccumulationId = accumulation.Id,
+                EmployeeCode = input.EmployeeCode,
+                CompanyId = companyId,
+                MovementType = OvertimeMovementType.UsedForTimeOff,
+                Minutes = -input.MinutesToUse, // Negativo porque se descuenta
+                BalanceAfter = accumulation.AccumulatedMinutes,
+                SourceDate = input.TimeOffDate,
+                AppliedRestDate = input.TimeOffDate,
+                AppliedIncidentId = input.AppliedIncidentId,
+                Notes = notes,
+                ByUserId = Guid.Parse(userId ?? Guid.Empty.ToString()),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.overtimeMovementLogs.Add(movementLog);
+            await _context.SaveChangesAsync();
+
+            return new OvertimeOperationResult
+            {
+                Success = true,
+                Message = "Horas aplicadas al permiso correctamente.",
+                MovementId = movementLog.Id,
+                NewBalance = accumulation.AccumulatedMinutes,
+                NewBalanceFormatted = FormatMinutes(accumulation.AccumulatedMinutes)
+            };
+        }
+
+        /// <summary>
+        /// Reintegra al balance las horas que se habían consumido para los permisos indicados
+        /// (por incidencia). Genera un movimiento de cancelación por cada consumo activo.
+        /// Devuelve el total de minutos reintegrados.
+        /// </summary>
+        public async Task<int> RefundTimeOffForIncidents(IEnumerable<Guid> incidentIds, int companyId, string? userId, string reason)
+        {
+            var ids = incidentIds.Distinct().ToList();
+            if (ids.Count == 0)
+            {
+                return 0;
+            }
+
+            // Consumos de horas para esos permisos
+            var usageMovements = await _context.overtimeMovementLogs
+                .Where(m => m.CompanyId == companyId &&
+                            m.MovementType == OvertimeMovementType.UsedForTimeOff &&
+                            m.AppliedIncidentId != null &&
+                            ids.Contains(m.AppliedIncidentId.Value))
+                .ToListAsync();
+
+            if (usageMovements.Count == 0)
+            {
+                return 0;
+            }
+
+            // Movimientos ya cancelados previamente
+            var usageIds = usageMovements.Select(m => m.Id).ToList();
+            var cancelledIds = await _context.overtimeMovementLogs
+                .Where(m => m.MovementType == OvertimeMovementType.Cancellation &&
+                            m.RelatedMovementId != null &&
+                            usageIds.Contains(m.RelatedMovementId.Value))
+                .Select(m => m.RelatedMovementId!.Value)
+                .ToListAsync();
+
+            var byUser = Guid.Parse(userId ?? Guid.Empty.ToString());
+            var totalRefunded = 0;
+
+            foreach (var movement in usageMovements)
+            {
+                if (cancelledIds.Contains(movement.Id))
+                {
+                    continue; // Ya fue reintegrado
+                }
+
+                var accumulation = await _context.overtimeAccumulations
+                    .FirstOrDefaultAsync(a => a.Id == movement.OvertimeAccumulationId);
+
+                if (accumulation == null)
+                {
+                    continue;
+                }
+
+                // movement.Minutes es negativo (se descontó). Revertir:
+                accumulation.AccumulatedMinutes -= movement.Minutes; // suma de vuelta
+                accumulation.UsedMinutes += movement.Minutes;        // resta de used
+                accumulation.UpdatedAt = DateTime.UtcNow;
+
+                _context.overtimeMovementLogs.Add(new OvertimeMovementLog
+                {
+                    OvertimeAccumulationId = accumulation.Id,
+                    EmployeeCode = movement.EmployeeCode,
+                    CompanyId = companyId,
+                    MovementType = OvertimeMovementType.Cancellation,
+                    Minutes = -movement.Minutes,
+                    BalanceAfter = accumulation.AccumulatedMinutes,
+                    SourceDate = movement.SourceDate,
+                    AppliedIncidentId = movement.AppliedIncidentId,
+                    Notes = $"Reintegro: {reason}",
+                    ByUserId = byUser,
+                    RelatedMovementId = movement.Id,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                totalRefunded += -movement.Minutes;
+            }
+
+            if (totalRefunded > 0)
+            {
+                await _context.SaveChangesAsync();
+            }
+
+            return totalRefunded;
+        }
+
+        /// <summary>
         /// Ajuste manual de horas
         /// </summary>
         public async Task<OvertimeOperationResult> ManualAdjustment(ManualOvertimeAdjustmentInput input, int companyId, string? userId)
@@ -689,6 +852,7 @@ namespace PrenominaApi.Services.Prenomina
                     accumulation.PaidMinutes -= movement.Minutes;
                     break;
                 case OvertimeMovementType.UsedForRestDay:
+                case OvertimeMovementType.UsedForTimeOff:
                     accumulation.AccumulatedMinutes -= movement.Minutes; // Era negativo, así que se suma
                     accumulation.UsedMinutes += movement.Minutes; // Era positivo en used
                     break;

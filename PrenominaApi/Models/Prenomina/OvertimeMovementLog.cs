@@ -60,6 +60,13 @@ namespace PrenominaApi.Models.Prenomina
         public DateOnly? AppliedRestDate { get; set; }
 
         /// <summary>
+        /// Incidencia/permiso (assistance_incident) al que se aplicó el consumo de horas
+        /// (si aplica). Permite reintegrar las horas al cancelar/rechazar/eliminar el permiso.
+        /// </summary>
+        [Column("applied_incident_id")]
+        public Guid? AppliedIncidentId { get; set; }
+
+        /// <summary>
         /// Hora de entrada original (referencia)
         /// </summary>
         [Column("original_check_in")]

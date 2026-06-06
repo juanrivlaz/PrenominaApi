@@ -34,6 +34,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<IgnoreIncidentToActivity> _ignoreIncidentToActivityRepository;
         private readonly IBaseServicePrenomina<EmployeeAbsenceRequests> _employeeAbsenRequestService;
         private readonly IBaseServicePrenomina<SystemConfig> _sysConfigService;
+        private readonly OvertimeAccumulationService _overtimeAccumulationService;
 
         public DayOffsService(
             GlobalPropertyService globalPropertyService,
@@ -56,7 +57,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<IgnoreIncidentToEmployee> ignoreIncidentToEmployeeRepository,
             IBaseRepositoryPrenomina<IgnoreIncidentToActivity> ignoreIncidentToActivityRepository,
             IBaseServicePrenomina<SystemConfig> sysConfigService,
-            IBaseServicePrenomina<EmployeeAbsenceRequests> employeeAbsenRequestService
+            IBaseServicePrenomina<EmployeeAbsenceRequests> employeeAbsenRequestService,
+            OvertimeAccumulationService overtimeAccumulationService
         ) : base(baseRepository) {
             _globalPropertyService = globalPropertyService;
             _keyRepository = keyRepository;
@@ -78,6 +80,7 @@ namespace PrenominaApi.Services.Prenomina
             _ignoreIncidentToActivityRepository = ignoreIncidentToActivityRepository;
             _sysConfigService = sysConfigService;
             _employeeAbsenRequestService = employeeAbsenRequestService;
+            _overtimeAccumulationService = overtimeAccumulationService;
         }
 
         public DayOff ExecuteProcess(CreateDayOff createDayOff)
@@ -602,7 +605,7 @@ namespace PrenominaApi.Services.Prenomina
                 resultEmployee.Add(new EmployeeDayOffOutput() {
                     Codigo = item.Codigo,
                     LastName = item.LastName,
-                    MLastName = item.LastName,
+                    MLastName = item.MLastName,
                     Name = item.Name,
                     Salary = item.Salary,
                     AttendancesIncident = assistanceIncidents.Where(ai => ai.EmployeeCode == item.Codigo).ToList()
@@ -643,6 +646,7 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             var requestGroupId = registerDaysOff.Dates.Count() > 1 ? Guid.NewGuid() : (Guid?)null;
+            var incidentIdByDate = new Dictionary<DateOnly, Guid>();
 
             foreach (var date in registerDaysOff.Dates)
             {
@@ -650,6 +654,7 @@ namespace PrenominaApi.Services.Prenomina
 
                 if (existIncident != null)
                 {
+                    incidentIdByDate[date] = existIncident.Id;
                     existIncident.IncidentCode = registerDaysOff.IncidentCode;
                     existIncident.UpdatedAt = DateTime.UtcNow;
                     existIncident.TimeOffRequest = true;
@@ -689,6 +694,8 @@ namespace PrenominaApi.Services.Prenomina
                         ByUserId = Guid.Parse(registerDaysOff.UserId!)
                     });
 
+                    incidentIdByDate[date] = incident.Id;
+
                     _auditLogRepository.Create(new AuditLog()
                     {
                         SectionCode = SectionCode.DayOff,
@@ -703,6 +710,8 @@ namespace PrenominaApi.Services.Prenomina
 
             _assistanceIncident.Save();
             _auditLogRepository.Save();
+
+            ApplyOvertimeUsages(registerDaysOff, incidentIdByDate);
 
             var assistanceIncidents = _assistanceIncident.GetContextEntity()
             .Include(ai => ai.ItemIncidentCode)
@@ -722,6 +731,63 @@ namespace PrenominaApi.Services.Prenomina
                 Name = employee.Name,
                 Salary = employee.Salary,
             };
+        }
+
+        /// <summary>
+        /// Aplica el consumo de horas extra acumuladas a los días del permiso. Reintegra
+        /// primero cualquier consumo previo (idempotencia al reeditar) y valida que el total
+        /// no exceda el balance disponible del empleado.
+        /// </summary>
+        private void ApplyOvertimeUsages(RegisterDaysOff registerDaysOff, Dictionary<DateOnly, Guid> incidentIdByDate)
+        {
+            var companyId = (int)registerDaysOff.CompanyId;
+            var employeeId = (int)registerDaysOff.EmployeeCode;
+
+            // Reintegrar cualquier consumo previo de los permisos involucrados para que la
+            // operación sea idempotente (re-registro/edición del mismo permiso).
+            _overtimeAccumulationService
+                .RefundTimeOffForIncidents(incidentIdByDate.Values, companyId, registerDaysOff.UserId, "Reasignación de permiso")
+                .GetAwaiter().GetResult();
+
+            var usages = registerDaysOff.OvertimeUsages?
+                .Where(u => u.Minutes > 0)
+                .ToList() ?? new List<OvertimeUsageInput>();
+
+            if (usages.Count == 0)
+            {
+                return;
+            }
+
+            var totalMinutes = usages.Sum(u => u.Minutes);
+            var available = _overtimeAccumulationService
+                .GetAvailableMinutes(employeeId, companyId)
+                .GetAwaiter().GetResult();
+
+            if (totalMinutes > available)
+            {
+                throw new BadHttpRequestException("Las horas a utilizar exceden el balance de horas acumuladas disponibles.");
+            }
+
+            foreach (var usage in usages)
+            {
+                if (!incidentIdByDate.TryGetValue(usage.Date, out var incidentId))
+                {
+                    throw new BadHttpRequestException($"No se encontró el permiso para la fecha {usage.Date:dd/MM/yyyy} indicada en el consumo de horas.");
+                }
+
+                var result = _overtimeAccumulationService.UseForTimeOff(new UseOvertimeForTimeOffInput
+                {
+                    EmployeeCode = employeeId,
+                    TimeOffDate = usage.Date,
+                    MinutesToUse = usage.Minutes,
+                    AppliedIncidentId = incidentId,
+                }, companyId, registerDaysOff.UserId).GetAwaiter().GetResult();
+
+                if (!result.Success)
+                {
+                    throw new BadHttpRequestException(result.Message ?? "No fue posible aplicar las horas acumuladas al permiso.");
+                }
+            }
         }
 
         public List<AssistanceIncident> ExecuteProcess(RejectDayOff rejectDayOff)
@@ -779,6 +845,11 @@ namespace PrenominaApi.Services.Prenomina
             _assistanceIncident.Save();
             _auditLogRepository.Save();
 
+            // Reintegrar las horas acumuladas que se hubieran consumido en estos permisos.
+            _overtimeAccumulationService
+                .RefundTimeOffForIncidents(incidentsToReject.Select(i => i.Id), (int)rejectDayOff.CompanyId, rejectDayOff.UserId, "Permiso rechazado")
+                .GetAwaiter().GetResult();
+
             return incidentsToReject;
         }
 
@@ -832,6 +903,11 @@ namespace PrenominaApi.Services.Prenomina
                     ByUserId = userId,
                 });
             }
+
+            // Reintegrar las horas acumuladas que se hubieran consumido en estos permisos.
+            _overtimeAccumulationService
+                .RefundTimeOffForIncidents(incidentsToDelete.Select(i => i.Id), (int)deletePermission.CompanyId, deletePermission.UserId, "Permiso eliminado")
+                .GetAwaiter().GetResult();
 
             _assistanceIncident.Save();
             _auditLogRepository.Save();
