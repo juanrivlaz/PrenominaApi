@@ -22,6 +22,7 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<AssistanceIncident> _assistanceIncidentRepository;
         private readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepository;
         private readonly IBaseRepositoryPrenomina<AssistanceIncidentApprover> _assistanceIncidentApproverRepository;
+        private readonly IBaseRepositoryPrenomina<OvertimeMovementLog> _overtimeMovementLogRepository;
 
         public EmployeeAbsenceRequestsService(
             IBaseRepositoryPrenomina<EmployeeAbsenceRequests> repository,
@@ -32,7 +33,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseServicePrenomina<SystemConfig> sysConfigService,
             IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository,
             IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepository,
-            IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository
+            IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository,
+            IBaseRepositoryPrenomina<OvertimeMovementLog> overtimeMovementLogRepository
         ) : base(repository)
         {
             _keyRepository = keyRepository;
@@ -43,6 +45,7 @@ namespace PrenominaApi.Services.Prenomina
             _assistanceIncidentRepository = assistanceIncidentRepository;
             _incidentApproverRepository = incidentApproverRepository;
             _assistanceIncidentApproverRepository = assistanceIncidentApproverRepository;
+            _overtimeMovementLogRepository = overtimeMovementLogRepository;
         }
 
         public IEnumerable<EmployeeAbsenceRequestOutput> ExecuteProcess(decimal companyId)
@@ -133,6 +136,120 @@ namespace PrenominaApi.Services.Prenomina
             });
 
             return result;
+        }
+
+        public EmployeeAbsenceRequestDetailOutput ExecuteProcess(GetAbsenceRequestDetail input)
+        {
+            if (string.IsNullOrEmpty(input.Id))
+            {
+                throw new BadHttpRequestException("El Id de la solicitud de ausencia es requerido");
+            }
+
+            var item = _repository.GetContextEntity()
+                .Include(e => e.IncidentCodeItem)
+                .FirstOrDefault(e => e.Id == Guid.Parse(input.Id));
+
+            if (item == null)
+            {
+                throw new BadHttpRequestException("La solicitud de ausencia no existe");
+            }
+
+            var key = _keyRepository.GetContextEntity()
+                .Include(k => k.Tabulator)
+                .Include(k => k.Employee)
+                .FirstOrDefault(k => k.Company == item.CompanyId && (int)k.Codigo == item.EmployeeCode);
+            var employee = key?.Employee;
+
+            // Incidencias relacionadas (mismo empleado/código dentro del rango de fechas).
+            var relatedIncidents = GetRelatedIncidents(item);
+            var relatedIncidentIds = relatedIncidents.Select(i => i.Id).ToList();
+
+            // ===== Progreso de aprobaciones =====
+            var approvers = _incidentApproverRepository.GetByFilter(ia => ia.IncidentCode == item.IncidentCode).ToList();
+            var totalApprovers = approvers.Count;
+            var approverIds = approvers.Select(a => a.Id).ToHashSet();
+            var approvedCount = relatedIncidentIds.Count == 0 ? 0 : _assistanceIncidentApproverRepository
+                .GetByFilter(a => relatedIncidentIds.Contains(a.AssistanceIncidentId) && approverIds.Contains(a.IncidentApproverId))
+                .Select(a => a.IncidentApproverId)
+                .Distinct()
+                .Count();
+
+            // ===== Consumo de horas extra acumuladas por día =====
+            // Movimientos de tipo "usado en permiso" aplicados a las incidencias del permiso,
+            // excluyendo los que ya fueron reintegrados (tienen una Cancelación que los referencia).
+            var overtimeByDate = new Dictionary<DateOnly, int>();
+            if (relatedIncidentIds.Count > 0)
+            {
+                var usageMovements = _overtimeMovementLogRepository
+                    .GetByFilter(m => m.CompanyId == (int)item.CompanyId &&
+                        m.MovementType == OvertimeMovementType.UsedForTimeOff &&
+                        m.AppliedIncidentId != null &&
+                        relatedIncidentIds.Contains(m.AppliedIncidentId.Value))
+                    .ToList();
+
+                var usageIds = usageMovements.Select(m => m.Id).ToList();
+                var cancelledIds = _overtimeMovementLogRepository
+                    .GetByFilter(m => m.MovementType == OvertimeMovementType.Cancellation &&
+                        m.RelatedMovementId != null &&
+                        usageIds.Contains(m.RelatedMovementId.Value))
+                    .Select(m => m.RelatedMovementId!.Value)
+                    .ToHashSet();
+
+                foreach (var movement in usageMovements)
+                {
+                    if (cancelledIds.Contains(movement.Id))
+                    {
+                        continue; // Reintegrado: ya no cuenta como consumo vigente.
+                    }
+
+                    var minutes = Math.Abs(movement.Minutes);
+                    overtimeByDate[movement.SourceDate] = overtimeByDate.GetValueOrDefault(movement.SourceDate) + minutes;
+                }
+            }
+
+            // Construir el detalle día por día sobre el rango del permiso.
+            var days = new List<AbsenceRequestDayDetail>();
+            for (var date = item.StartDate; date <= item.EndDate; date = date.AddDays(1))
+            {
+                var minutes = overtimeByDate.GetValueOrDefault(date);
+                days.Add(new AbsenceRequestDayDetail
+                {
+                    Date = date,
+                    OvertimeMinutes = minutes,
+                    OvertimeFormatted = FormatMinutes(minutes),
+                });
+            }
+
+            var totalOvertime = overtimeByDate.Values.Sum();
+
+            return new EmployeeAbsenceRequestDetailOutput
+            {
+                Id = item.Id,
+                EmployeeName = $"{employee?.Name ?? string.Empty} {employee?.LastName ?? string.Empty} {employee?.MLastName ?? string.Empty}".Trim(),
+                EmployeeCode = item.EmployeeCode,
+                EmployeeActivity = key?.Tabulator.Activity ?? string.Empty,
+                IncidentCode = item.IncidentCode,
+                IncidentDescription = item.IncidentCodeItem?.Label ?? string.Empty,
+                StartDate = item.StartDate,
+                EndDate = item.EndDate,
+                Notes = item.Notes,
+                Status = item.Status,
+                CreatedAt = item.CreatedAt,
+                RequiresApproval = totalApprovers > 0,
+                TotalApprovers = totalApprovers,
+                ApprovedCount = approvedCount,
+                DaysCount = days.Count,
+                UsedOvertime = totalOvertime > 0,
+                TotalOvertimeMinutes = totalOvertime,
+                TotalOvertimeFormatted = FormatMinutes(totalOvertime),
+                Days = days,
+            };
+        }
+
+        private static string FormatMinutes(int minutes)
+        {
+            var safe = Math.Max(0, minutes);
+            return $"{safe / 60} hrs {(safe % 60):00} min";
         }
 
         public bool ExecuteProcess(RegisterDaysOff registerDaysOff)

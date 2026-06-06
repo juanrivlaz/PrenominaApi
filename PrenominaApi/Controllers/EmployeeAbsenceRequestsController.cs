@@ -28,6 +28,15 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpGet("{id}/detail")]
+        public ActionResult<EmployeeAbsenceRequestDetailOutput> Detail(string id)
+        {
+            var result = _service.ExecuteProcess<GetAbsenceRequestDetail, EmployeeAbsenceRequestDetailOutput>(
+                new GetAbsenceRequestDetail { Id = id });
+
+            return Ok(result);
+        }
+
         [HttpPut("{id}/status")]
         public ActionResult<bool> ChangeStatus(string id, [FromBody] ChangeStatus changeStatus)
         {

@@ -1220,6 +1220,7 @@ namespace PrenominaApi.Services.Prenomina
             OvertimeMovementType.Cancellation => "Cancelación",
             OvertimeMovementType.HourBank => "Banco de Horas",
             OvertimeMovementType.ExternalEntry => "Registro externo",
+            OvertimeMovementType.UsedForTimeOff => "Usado en permiso",
             _ => "Desconocido"
         };
 
