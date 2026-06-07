@@ -123,6 +123,18 @@ namespace PrenominaApi.Services.Prenomina
 
             var signaturesHtml = DocumentPdfRenderer.BuildSignaturesHtml(employeeName, blocks);
 
+            // Fechas de donde se tomaron las horas extras: fechas origen de los movimientos de
+            // pago directo vinculados a la papeleta, distintas y ordenadas, separadas por coma.
+            var overtimeDates = await _context.overtimeMovementLogs
+                .AsNoTracking()
+                .Where(m => m.OvertimePaymentRequestId == request.Id
+                    && m.MovementType == OvertimeMovementType.DirectPayment)
+                .Select(m => m.SourceDate)
+                .Distinct()
+                .OrderBy(d => d)
+                .ToListAsync();
+            var overtimeDatesText = string.Join(", ", overtimeDates.Select(d => d.ToString("dd/MM/yyyy")));
+
             var values = new Dictionary<string, string>
             {
                 ["logo"] = logoHtml,
@@ -133,6 +145,7 @@ namespace PrenominaApi.Services.Prenomina
                 ["departmentName"] = department,
                 ["totalOvertime"] = FormatMinutes(request.TotalMinutes),
                 ["totalMinutes"] = request.TotalMinutes.ToString(),
+                ["overtimeDates"] = overtimeDatesText,
                 ["today"] = request.CreatedAt.ToString("dd/MM/yyyy"),
                 ["notes"] = request.Notes ?? string.Empty,
                 ["signatures"] = signaturesHtml,
