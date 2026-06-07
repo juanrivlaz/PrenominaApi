@@ -58,5 +58,7 @@ namespace PrenominaApi.Models.Prenomina
         public virtual IEnumerable<IncidentCodeAllowedRoles>? IncidentCodeAllowedRoles { get; set; }
         [NotMapped]
         public virtual IEnumerable<EmployeeAbsenceRequests>? EmployeeAbsenceRequests { get; set; }
+        [NotMapped]
+        public virtual IEnumerable<IncidentApprovalStep>? ApprovalSteps { get; set; }
         }
 }

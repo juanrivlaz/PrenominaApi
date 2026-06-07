@@ -23,6 +23,11 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepository;
         private readonly IBaseRepositoryPrenomina<AssistanceIncidentApprover> _assistanceIncidentApproverRepository;
         private readonly IBaseRepositoryPrenomina<OvertimeMovementLog> _overtimeMovementLogRepository;
+        private readonly IBaseRepositoryPrenomina<AbsenceRequestApproval> _absenceRequestApprovalRepository;
+        private readonly IBaseRepositoryPrenomina<Role> _roleRepository;
+        private readonly IBaseRepositoryPrenomina<User> _userRepository;
+        private readonly IBaseRepositoryPrenomina<ApproverDelegation> _approverDelegationRepository;
+        private readonly ApprovalResolver _approvalResolver;
 
         public EmployeeAbsenceRequestsService(
             IBaseRepositoryPrenomina<EmployeeAbsenceRequests> repository,
@@ -34,7 +39,12 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<AssistanceIncident> assistanceIncidentRepository,
             IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepository,
             IBaseRepositoryPrenomina<AssistanceIncidentApprover> assistanceIncidentApproverRepository,
-            IBaseRepositoryPrenomina<OvertimeMovementLog> overtimeMovementLogRepository
+            IBaseRepositoryPrenomina<OvertimeMovementLog> overtimeMovementLogRepository,
+            IBaseRepositoryPrenomina<AbsenceRequestApproval> absenceRequestApprovalRepository,
+            IBaseRepositoryPrenomina<Role> roleRepository,
+            IBaseRepositoryPrenomina<User> userRepository,
+            IBaseRepositoryPrenomina<ApproverDelegation> approverDelegationRepository,
+            ApprovalResolver approvalResolver
         ) : base(repository)
         {
             _keyRepository = keyRepository;
@@ -46,6 +56,11 @@ namespace PrenominaApi.Services.Prenomina
             _incidentApproverRepository = incidentApproverRepository;
             _assistanceIncidentApproverRepository = assistanceIncidentApproverRepository;
             _overtimeMovementLogRepository = overtimeMovementLogRepository;
+            _absenceRequestApprovalRepository = absenceRequestApprovalRepository;
+            _roleRepository = roleRepository;
+            _userRepository = userRepository;
+            _approverDelegationRepository = approverDelegationRepository;
+            _approvalResolver = approvalResolver;
         }
 
         public IEnumerable<EmployeeAbsenceRequestOutput> ExecuteProcess(decimal companyId)
@@ -88,6 +103,20 @@ namespace PrenominaApi.Services.Prenomina
 
             Guid? currentUserId = Guid.TryParse(_globalPropertyService.UserId, out var uid) ? uid : null;
 
+            // Titulares a los que el usuario actual puede suplir hoy (delegación vigente).
+            var currentUserDelegators = currentUserId != null
+                ? GetDelegatorIdsFor(currentUserId.Value)
+                : new HashSet<Guid>();
+
+            // Cadenas de firmas congeladas por solicitud (flujo nuevo). Si una solicitud tiene
+            // cadena, su progreso/permiso se calcula desde aquí; si no, se usa el flujo previo.
+            var requestIds = requests.Select(r => r.Id).ToList();
+            var chainsByRequest = _absenceRequestApprovalRepository
+                .GetByFilter(a => requestIds.Contains(a.AbsenceRequestId))
+                .ToList()
+                .GroupBy(a => a.AbsenceRequestId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(a => a.StepOrder).ToList());
+
             var result = requests.Select(r =>
             {
                 var key = keys.FirstOrDefault(k => k.Codigo == r.EmployeeCode);
@@ -95,24 +124,58 @@ namespace PrenominaApi.Services.Prenomina
                 var activity = key?.Tabulator.Activity;
                 var incident = r.IncidentCodeItem;
 
-                approversByCode.TryGetValue(r.IncidentCode, out var codeApprovers);
-                var totalApprovers = codeApprovers?.Count ?? 0;
-                var approverIds = codeApprovers?.Select(a => a.Id).ToHashSet() ?? new HashSet<Guid>();
+                bool requiresApproval;
+                int totalApprovers;
+                int approvedCount;
+                bool alreadyApprovedByMe;
+                bool canApprove;
 
-                // Incidences of this request (same employee/code within the date range).
-                var requestIncidentIds = relatedIncidents
-                    .Where(ai => ai.EmployeeCode == r.EmployeeCode && ai.IncidentCode == r.IncidentCode && ai.Date >= r.StartDate && ai.Date <= r.EndDate)
-                    .Select(ai => ai.Id)
-                    .ToList();
+                if (chainsByRequest.TryGetValue(r.Id, out var chain) && chain.Count > 0)
+                {
+                    // ===== Progreso por cadena de firmas =====
+                    var effectiveLevels = chain.Where(l => l.Status != ApprovalInstanceStatus.Skipped).ToList();
+                    var currentLevel = chain.FirstOrDefault(l => l.Status == ApprovalInstanceStatus.Pending);
+                    // Puede firmar si es candidato directo o suplente de algún candidato, y aún
+                    // no ha firmado este nivel (relevante en modo All).
+                    var currentCandidates = currentLevel != null ? ParseCandidateIds(currentLevel.ResolvedCandidateUserIds) : new HashSet<Guid>();
+                    var currentSigned = currentLevel != null ? ParseCandidateIds(currentLevel.SignedUserIds) : new HashSet<Guid>();
+                    var iCanSignCurrent = currentLevel != null && currentUserId != null
+                        && currentCandidates.Any(c => (c == currentUserId.Value || currentUserDelegators.Contains(c)) && !currentSigned.Contains(c));
+                    var iAmCurrentCandidate = iCanSignCurrent;
+                    var iApprovedSomeLevel = currentUserId != null
+                        && chain.Any(l => l.Status == ApprovalInstanceStatus.Approved && l.ApprovedByUserId == currentUserId);
 
-                // Valid approvers that already registered their approval on the request.
-                var approvedApproverIds = requestIncidentIds
-                    .SelectMany(id => approvalsByIncident.TryGetValue(id, out var list) ? list : Enumerable.Empty<Guid>())
-                    .Where(id => approverIds.Contains(id))
-                    .Distinct()
-                    .ToList();
+                    requiresApproval = true;
+                    totalApprovers = effectiveLevels.Count;
+                    approvedCount = effectiveLevels.Count(l => l.Status == ApprovalInstanceStatus.Approved);
+                    alreadyApprovedByMe = iApprovedSomeLevel && !iAmCurrentCandidate;
+                    canApprove = iAmCurrentCandidate;
+                }
+                else
+                {
+                    // ===== Flujo previo (incident_approver plano) =====
+                    approversByCode.TryGetValue(r.IncidentCode, out var codeApprovers);
+                    totalApprovers = codeApprovers?.Count ?? 0;
+                    var approverIds = codeApprovers?.Select(a => a.Id).ToHashSet() ?? new HashSet<Guid>();
 
-                var myApprover = codeApprovers?.FirstOrDefault(a => currentUserId != null && a.UserId == currentUserId);
+                    var requestIncidentIds = relatedIncidents
+                        .Where(ai => ai.EmployeeCode == r.EmployeeCode && ai.IncidentCode == r.IncidentCode && ai.Date >= r.StartDate && ai.Date <= r.EndDate)
+                        .Select(ai => ai.Id)
+                        .ToList();
+
+                    var approvedApproverIds = requestIncidentIds
+                        .SelectMany(id => approvalsByIncident.TryGetValue(id, out var list) ? list : Enumerable.Empty<Guid>())
+                        .Where(id => approverIds.Contains(id))
+                        .Distinct()
+                        .ToList();
+
+                    var myApprover = codeApprovers?.FirstOrDefault(a => currentUserId != null && a.UserId == currentUserId);
+
+                    requiresApproval = totalApprovers > 0;
+                    approvedCount = approvedApproverIds.Count;
+                    alreadyApprovedByMe = myApprover != null && approvedApproverIds.Contains(myApprover.Id);
+                    canApprove = totalApprovers == 0 || myApprover != null;
+                }
 
                 return new EmployeeAbsenceRequestOutput
                 {
@@ -127,11 +190,11 @@ namespace PrenominaApi.Services.Prenomina
                     Notes = r.Notes,
                     Status = r.Status,
                     CreatedAt = r.CreatedAt,
-                    RequiresApproval = totalApprovers > 0,
+                    RequiresApproval = requiresApproval,
                     TotalApprovers = totalApprovers,
-                    ApprovedCount = approvedApproverIds.Count,
-                    AlreadyApprovedByMe = myApprover != null && approvedApproverIds.Contains(myApprover.Id),
-                    CanApprove = totalApprovers == 0 || myApprover != null,
+                    ApprovedCount = approvedCount,
+                    AlreadyApprovedByMe = alreadyApprovedByMe,
+                    CanApprove = canApprove,
                 };
             });
 
@@ -173,6 +236,57 @@ namespace PrenominaApi.Services.Prenomina
                 .Select(a => a.IncidentApproverId)
                 .Distinct()
                 .Count();
+
+            // ===== Cadena de firmas (flujo nuevo) =====
+            var chain = _absenceRequestApprovalRepository
+                .GetByFilter(a => a.AbsenceRequestId == item.Id)
+                .OrderBy(a => a.StepOrder)
+                .ToList();
+
+            var approvalChain = new List<AbsenceRequestApprovalStepOutput>();
+            if (chain.Count > 0)
+            {
+                var roleIds = chain.Select(c => c.RoleId).Distinct().ToList();
+                var roleLabels = _roleRepository.GetByFilter(r => roleIds.Contains(r.Id))
+                    .ToDictionary(r => r.Id, r => r.Label);
+
+                var approverUserIds = chain.Where(c => c.ApprovedByUserId != null)
+                    .Select(c => c.ApprovedByUserId!.Value).Distinct().ToList();
+                var approverNames = approverUserIds.Count == 0
+                    ? new Dictionary<Guid, string>()
+                    : _userRepository.GetByFilter(u => approverUserIds.Contains(u.Id))
+                        .ToDictionary(u => u.Id, u => u.Name);
+
+                var currentLevel = chain.FirstOrDefault(l => l.Status == ApprovalInstanceStatus.Pending);
+
+                // "En espera desde": la última firma previa, o la creación de la solicitud.
+                const int overdueThresholdDays = 3;
+                var lastApprovedAt = chain
+                    .Where(l => l.Status == ApprovalInstanceStatus.Approved && l.ApprovedAt != null)
+                    .Select(l => l.ApprovedAt!.Value)
+                    .DefaultIfEmpty(item.CreatedAt)
+                    .Max();
+                var daysPending = currentLevel != null ? (int)(DateTime.UtcNow.Date - lastApprovedAt.Date).TotalDays : (int?)null;
+
+                approvalChain = chain.Select(c => new AbsenceRequestApprovalStepOutput
+                {
+                    StepOrder = c.StepOrder,
+                    RoleLabel = roleLabels.TryGetValue(c.RoleId, out var label) ? label : "Rol",
+                    Scope = c.Scope.ToString(),
+                    Status = c.Status.ToString(),
+                    IsCurrent = currentLevel != null && c.Id == currentLevel.Id,
+                    ApprovedByName = c.ApprovedByUserId != null && approverNames.TryGetValue(c.ApprovedByUserId.Value, out var name) ? name : null,
+                    ApprovedAt = c.ApprovedAt,
+                    Comment = c.Comment,
+                    DaysPending = currentLevel != null && c.Id == currentLevel.Id ? daysPending : null,
+                    IsOverdue = currentLevel != null && c.Id == currentLevel.Id && daysPending != null && daysPending >= overdueThresholdDays,
+                }).ToList();
+
+                // El progreso refleja la cadena cuando existe.
+                var effectiveLevels = chain.Where(l => l.Status != ApprovalInstanceStatus.Skipped).ToList();
+                totalApprovers = effectiveLevels.Count;
+                approvedCount = effectiveLevels.Count(l => l.Status == ApprovalInstanceStatus.Approved);
+            }
 
             // ===== Consumo de horas extra acumuladas por día =====
             // Movimientos de tipo "usado en permiso" aplicados a las incidencias del permiso,
@@ -243,6 +357,7 @@ namespace PrenominaApi.Services.Prenomina
                 TotalOvertimeMinutes = totalOvertime,
                 TotalOvertimeFormatted = FormatMinutes(totalOvertime),
                 Days = days,
+                ApprovalChain = approvalChain,
             };
         }
 
@@ -278,6 +393,10 @@ namespace PrenominaApi.Services.Prenomina
             _repository.Create(item);
             _repository.Save();
 
+            // Congela la cadena de firmas (rol + alcance) para esta solicitud. Si el código
+            // no tiene cadena configurada, no hace nada y se conserva el flujo previo.
+            _approvalResolver.MaterializeForAbsenceRequest(item.Id, item.IncidentCode, (int)company.Id, item.EmployeeCode);
+
             return true;
         }
 
@@ -292,6 +411,18 @@ namespace PrenominaApi.Services.Prenomina
             if (item == null)
             {
                 throw new BadHttpRequestException("La solicitud de ausencia no existe");
+            }
+
+            // Si la solicitud tiene cadena de firmas congelada, se usa el flujo secuencial
+            // por nivel (rol + alcance). Si no, se conserva el flujo previo (incident_approver).
+            var chain = _absenceRequestApprovalRepository
+                .GetByFilter(a => a.AbsenceRequestId == item.Id)
+                .OrderBy(a => a.StepOrder)
+                .ToList();
+
+            if (chain.Count > 0)
+            {
+                return ProcessChainedApproval(item, chain, changeStatus);
             }
 
             // Approvers configured for the request's incidence code.
@@ -391,6 +522,173 @@ namespace PrenominaApi.Services.Prenomina
             _repository.Update(item);
             _repository.Save();
             return true;
+        }
+
+        // Flujo de aprobación secuencial por nivel (cadena de firmas congelada).
+        // El usuario solo puede firmar/rechazar el nivel pendiente más temprano del que es
+        // candidato; al aprobarse el último nivel se aprueba la solicitud y se propaga a las
+        // incidencias. Un rechazo en cualquier nivel rechaza toda la solicitud.
+        private bool ProcessChainedApproval(EmployeeAbsenceRequests item, List<AbsenceRequestApproval> chain, ChangeStatus changeStatus)
+        {
+            var now = DateTime.UtcNow;
+            Guid? currentUserId = Guid.TryParse(_globalPropertyService.UserId, out var uid) ? uid : null;
+
+            if (currentUserId == null)
+            {
+                throw new BadHttpRequestException("No se pudo identificar al usuario.");
+            }
+
+            // Estados que solo cambian la solicitud (sin firma): regresar a pendiente, etc.
+            if (changeStatus.Status != AbsenceRequestStatus.Approved && changeStatus.Status != AbsenceRequestStatus.Rejected)
+            {
+                item.Status = changeStatus.Status;
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+                return true;
+            }
+
+            // Primer nivel sin resolver (los Skipped/Approved ya están resueltos y se ignoran).
+            var currentLevel = chain.FirstOrDefault(l =>
+                l.Status == ApprovalInstanceStatus.Pending || l.Status == ApprovalInstanceStatus.Blocked);
+
+            if (currentLevel == null)
+            {
+                throw new BadHttpRequestException("La solicitud ya no tiene niveles pendientes por firmar.");
+            }
+
+            if (currentLevel.Status == ApprovalInstanceStatus.Blocked)
+            {
+                throw new BadHttpRequestException("El nivel actual no tiene responsables asignados. Contacte al administrador.");
+            }
+
+            // El usuario debe ser candidato del nivel actual, ya sea directamente o como
+            // suplente (delegación vigente) de algún candidato.
+            var candidates = ParseCandidateIds(currentLevel.ResolvedCandidateUserIds);
+            var delegators = GetDelegatorIdsFor(currentUserId.Value);
+            var signableFor = candidates
+                .Where(c => c == currentUserId.Value || delegators.Contains(c))
+                .ToHashSet();
+
+            if (signableFor.Count == 0)
+            {
+                throw new BadHttpRequestException("No tienes autorización para firmar este nivel de la solicitud.");
+            }
+
+            var relatedIncidents = GetRelatedIncidents(item);
+
+            if (changeStatus.Status == AbsenceRequestStatus.Rejected)
+            {
+                currentLevel.Status = ApprovalInstanceStatus.Rejected;
+                currentLevel.ApprovedByUserId = currentUserId;
+                currentLevel.ApprovedAt = now;
+                currentLevel.Comment = changeStatus.Comment;
+                currentLevel.UpdatedAt = now;
+                _absenceRequestApprovalRepository.Update(currentLevel);
+                _absenceRequestApprovalRepository.Save();
+
+                item.Status = AbsenceRequestStatus.Rejected;
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+
+                PropagateToIncidents(relatedIncidents, false, now);
+                return true;
+            }
+
+            // Aprobación del nivel actual. Se registran los candidatos cubiertos por esta firma
+            // (el propio usuario y/o los titulares a los que suple).
+            var signed = ParseCandidateIds(currentLevel.SignedUserIds);
+            foreach (var c in signableFor)
+            {
+                signed.Add(c);
+            }
+            currentLevel.SignedUserIds = string.Join(",", signed);
+
+            // Modo All: el nivel se aprueba sólo cuando TODOS los candidatos han firmado.
+            // Modo AnyOne: basta una firma.
+            var levelCompleted = currentLevel.Mode == ApprovalStepMode.All
+                ? candidates.All(c => signed.Contains(c))
+                : true;
+
+            if (!levelCompleted)
+            {
+                // Firma parcial dentro del nivel (modo All): la solicitud sigue pendiente.
+                currentLevel.Comment = changeStatus.Comment;
+                currentLevel.UpdatedAt = now;
+                _absenceRequestApprovalRepository.Update(currentLevel);
+                _absenceRequestApprovalRepository.Save();
+
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+                return true;
+            }
+
+            currentLevel.Status = ApprovalInstanceStatus.Approved;
+            currentLevel.ApprovedByUserId = currentUserId;
+            currentLevel.ApprovedAt = now;
+            currentLevel.Comment = changeStatus.Comment;
+            currentLevel.UpdatedAt = now;
+            _absenceRequestApprovalRepository.Update(currentLevel);
+            _absenceRequestApprovalRepository.Save();
+
+            // ¿Quedan niveles por resolver después de éste? (pendientes o bloqueados).
+            // Un nivel bloqueado posterior impide aprobar la solicitud hasta resolverse.
+            var hasMorePending = chain.Any(l => l.Id != currentLevel.Id &&
+                (l.Status == ApprovalInstanceStatus.Pending || l.Status == ApprovalInstanceStatus.Blocked));
+
+            if (!hasMorePending)
+            {
+                // Última firma: la solicitud queda aprobada y se refleja en las incidencias.
+                item.Status = AbsenceRequestStatus.Approved;
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+
+                PropagateToIncidents(relatedIncidents, true, now);
+            }
+            else
+            {
+                // Aprobación parcial: la solicitud sigue pendiente del resto de niveles.
+                item.UpdatedAt = now;
+                _repository.Update(item);
+                _repository.Save();
+            }
+
+            return true;
+        }
+
+        // Titulares a los que el usuario indicado puede suplir hoy (delegación vigente).
+        private HashSet<Guid> GetDelegatorIdsFor(Guid delegateUserId)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            return _approverDelegationRepository
+                .GetByFilter(d => d.DelegateUserId == delegateUserId
+                    && d.FromDate <= today
+                    && (d.ToDate == null || d.ToDate >= today))
+                .Select(d => d.UserId)
+                .ToHashSet();
+        }
+
+        // Convierte el snapshot CSV de candidatos a un conjunto de GUIDs.
+        private static HashSet<Guid> ParseCandidateIds(string? csv)
+        {
+            var set = new HashSet<Guid>();
+            if (string.IsNullOrWhiteSpace(csv))
+            {
+                return set;
+            }
+
+            foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (Guid.TryParse(part, out var id))
+                {
+                    set.Add(id);
+                }
+            }
+
+            return set;
         }
 
         // Incidences related to a request by company, employee, code and date range.

@@ -170,6 +170,9 @@ builder.Services.AddScoped<BioTimeSyncService>();
 builder.Services.AddScoped<WorkScheduleService>();
 builder.Services.AddScoped<EmployeeScheduleResolver>();
 
+// Register approval chain resolver (cadena de firmas por rol + alcance)
+builder.Services.AddScoped<ApprovalResolver>();
+
 // Register Document service
 builder.Services.AddScoped<DocumentService>();
 
