@@ -46,6 +46,8 @@ namespace PrenominaApi.Models.Dto.Output.EmployeeAbsenceRequest
         public int? DaysPending { get; set; }
         /// <summary>True si el nivel actual supera el umbral de días sin firmar.</summary>
         public bool IsOverdue { get; set; }
+        /// <summary>Usuarios candidatos asignados a firmar este nivel (snapshot).</summary>
+        public List<string> CandidateNames { get; set; } = new();
     }
 
     public class AbsenceRequestDayDetail

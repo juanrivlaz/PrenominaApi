@@ -256,12 +256,18 @@ namespace PrenominaApi.Services.Prenomina
                 var roleLabels = _roleRepository.GetByFilter(r => roleIds.Contains(r.Id))
                     .ToDictionary(r => r.Id, r => r.Label);
 
-                var approverUserIds = chain.Where(c => c.ApprovedByUserId != null)
-                    .Select(c => c.ApprovedByUserId!.Value).Distinct().ToList();
-                var approverNames = approverUserIds.Count == 0
+                // Nombres de TODOS los usuarios involucrados: quienes firmaron y los candidatos
+                // asignados (snapshot) de cada nivel, para mostrar a quién está asignado.
+                var candidatesByLevel = chain.ToDictionary(c => c.Id, c => ParseCandidateIds(c.ResolvedCandidateUserIds).ToList());
+                var involvedUserIds = chain.Where(c => c.ApprovedByUserId != null).Select(c => c.ApprovedByUserId!.Value)
+                    .Concat(candidatesByLevel.Values.SelectMany(v => v))
+                    .Distinct()
+                    .ToList();
+                var userNames = involvedUserIds.Count == 0
                     ? new Dictionary<Guid, string>()
-                    : _userRepository.GetByFilter(u => approverUserIds.Contains(u.Id))
+                    : _userRepository.GetByFilter(u => involvedUserIds.Contains(u.Id))
                         .ToDictionary(u => u.Id, u => u.Name);
+                var approverNames = userNames;
 
                 var currentLevel = chain.FirstOrDefault(l => l.Status == ApprovalInstanceStatus.Pending);
 
@@ -286,6 +292,9 @@ namespace PrenominaApi.Services.Prenomina
                     Comment = c.Comment,
                     DaysPending = currentLevel != null && c.Id == currentLevel.Id ? daysPending : null,
                     IsOverdue = currentLevel != null && c.Id == currentLevel.Id && daysPending != null && daysPending >= overdueThresholdDays,
+                    CandidateNames = candidatesByLevel.TryGetValue(c.Id, out var cands)
+                        ? cands.Select(id => userNames.TryGetValue(id, out var n) ? n : null).Where(n => n != null).Cast<string>().ToList()
+                        : new List<string>(),
                 }).ToList();
 
                 // El progreso refleja la cadena cuando existe.
