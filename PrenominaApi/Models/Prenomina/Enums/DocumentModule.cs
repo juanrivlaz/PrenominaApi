@@ -5,6 +5,7 @@ namespace PrenominaApi.Models.Prenomina.Enums
         Generic = 0,
         Contracts = 1,
         Permits = 2,
-        Notifications = 3
+        Notifications = 3,
+        OvertimePayment = 4
     }
 }

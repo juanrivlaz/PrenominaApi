@@ -18,6 +18,14 @@ namespace PrenominaApi.Models.Prenomina
         [Column("id")]
         public Guid Id { get; set; } = Guid.NewGuid();
 
+        /// <summary>Tipo de solicitud dueña de esta cadena (permiso o pago de horas extras).</summary>
+        [Column("request_type")]
+        public ApprovalRequestType RequestType { get; set; } = ApprovalRequestType.AbsenceRequest;
+
+        /// <summary>
+        /// Id de la solicitud dueña. Para permisos = EmployeeAbsenceRequests.Id; para pago de
+        /// horas extras = OvertimePaymentRequest.Id. (La columna conserva el nombre histórico.)
+        /// </summary>
         [Column("absence_request_id")]
         public required Guid AbsenceRequestId { get; set; }
 

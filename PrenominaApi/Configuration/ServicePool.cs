@@ -88,6 +88,8 @@ namespace PrenominaApi.Configuration
 
             // Servicios adicionales que no siguen el patrón genérico
             services.AddScoped<OvertimeAccumulationService>();
+            services.AddScoped<ApprovalFlowService>();
+            services.AddScoped<OvertimePaymentRequestService>();
         }
     }
 }

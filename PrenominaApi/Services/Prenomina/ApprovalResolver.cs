@@ -24,22 +24,29 @@ namespace PrenominaApi.Services.Prenomina
         }
 
         /// <summary>
-        /// Crea los niveles de firma congelados para una solicitud de ausencia.
-        /// Si el código no tiene cadena configurada, no hace nada (comportamiento previo).
+        /// Crea los niveles de firma congelados para una solicitud de ausencia (permiso).
+        /// La cadena se toma del documento asignado al código de incidencia. Si no hay, no hace nada.
         /// </summary>
         public void MaterializeForAbsenceRequest(Guid absenceRequestId, string incidentCode, int companyId, int employeeCode)
         {
-            // La cadena se configura en el documento/contrato asignado al código de incidencia.
-            // La empresa solo se usa para resolver a los candidatos reales de cada nivel.
             var documentId = _context.incidentCodes
                 .AsNoTracking()
                 .Where(c => c.Code == incidentCode)
                 .Select(c => c.DocumentId)
                 .FirstOrDefault();
 
+            MaterializeForRequest(ApprovalRequestType.AbsenceRequest, absenceRequestId, documentId, companyId, employeeCode);
+        }
+
+        /// <summary>
+        /// Crea los niveles de firma congelados para cualquier tipo de solicitud, a partir de la
+        /// cadena configurada en un documento. Si el documento es nulo o no tiene cadena, no hace nada.
+        /// </summary>
+        public void MaterializeForRequest(ApprovalRequestType requestType, Guid requestId, Guid? documentId, int companyId, int employeeCode)
+        {
             if (documentId == null)
             {
-                return; // El código no tiene contrato/documento asignado: sin cadena.
+                return;
             }
 
             var steps = _context.documentApprovalSteps
@@ -71,7 +78,8 @@ namespace PrenominaApi.Services.Prenomina
 
                 _context.absenceRequestApprovals.Add(new AbsenceRequestApproval
                 {
-                    AbsenceRequestId = absenceRequestId,
+                    RequestType = requestType,
+                    AbsenceRequestId = requestId,
                     StepOrder = step.StepOrder,
                     RoleId = step.RoleId,
                     Scope = step.Scope,

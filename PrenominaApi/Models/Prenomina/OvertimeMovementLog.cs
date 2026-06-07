@@ -67,6 +67,13 @@ namespace PrenominaApi.Models.Prenomina
         public Guid? AppliedIncidentId { get; set; }
 
         /// <summary>
+        /// Papeleta/solicitud de pago de horas extras a la que pertenece este movimiento
+        /// (si aplica). Permite reintegrar las horas al rechazar la solicitud de pago.
+        /// </summary>
+        [Column("overtime_payment_request_id")]
+        public Guid? OvertimePaymentRequestId { get; set; }
+
+        /// <summary>
         /// Hora de entrada original (referencia)
         /// </summary>
         [Column("original_check_in")]

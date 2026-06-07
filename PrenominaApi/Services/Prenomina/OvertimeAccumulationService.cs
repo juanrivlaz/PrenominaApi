@@ -20,17 +20,80 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepository<Key> _keyRepository;
         private readonly GlobalPropertyService _globalPropertyService;
         private readonly IBaseServicePrenomina<Period> _periodService;
+        private readonly ApprovalResolver _approvalResolver;
 
         public OvertimeAccumulationService(
             PrenominaDbContext context,
             IBaseRepository<Key> keyRepository,
             GlobalPropertyService globalPropertyService,
-            IBaseServicePrenomina<Period> periodService)
+            IBaseServicePrenomina<Period> periodService,
+            ApprovalResolver approvalResolver)
         {
             _context = context;
             _keyRepository = keyRepository;
             _globalPropertyService = globalPropertyService;
             _periodService = periodService;
+            _approvalResolver = approvalResolver;
+        }
+
+        /// <summary>
+        /// Crea la papeleta/solicitud de pago de horas extras para un empleado, vincula los
+        /// movimientos de pago indicados y materializa su cadena de firmas (documento módulo
+        /// Pago de horas extras). Una papeleta por empleado.
+        /// </summary>
+        /// <summary>
+        /// Verifica que exista un documento/formato de módulo "Pago de horas extras". Sin él no
+        /// se puede generar la papeleta, por lo que no se permite pagar.
+        /// </summary>
+        private async Task EnsureOvertimePaymentDocumentExists()
+        {
+            var exists = await _context.documents
+                .AnyAsync(d => d.Module == DocumentModule.OvertimePayment && d.DeletedAt == null);
+
+            if (!exists)
+            {
+                throw new BadHttpRequestException(
+                    "No existe un formato (papeleta) de horas extras configurado. Crea uno en Documentos (módulo Pago de horas extras) antes de pagar.");
+            }
+        }
+
+        private async Task CreateOvertimePaymentRequest(int employeeCode, int companyId, string? userId, List<int> movementIds, int totalMinutes, string? notes)
+        {
+            if (movementIds.Count == 0)
+            {
+                return;
+            }
+
+            var documentId = await _context.documents
+                .Where(d => d.Module == DocumentModule.OvertimePayment && d.DeletedAt == null)
+                .OrderBy(d => d.CreatedAt)
+                .Select(d => (Guid?)d.Id)
+                .FirstOrDefaultAsync();
+
+            var request = new OvertimePaymentRequest
+            {
+                EmployeeCode = employeeCode,
+                CompanyId = companyId,
+                TotalMinutes = totalMinutes,
+                DocumentId = documentId,
+                Status = AbsenceRequestStatus.Pending,
+                Notes = notes,
+                CreatedByUserId = Guid.TryParse(userId, out var uid) ? uid : (Guid?)null,
+            };
+            _context.overtimePaymentRequests.Add(request);
+
+            var movements = await _context.overtimeMovementLogs
+                .Where(m => movementIds.Contains(m.Id))
+                .ToListAsync();
+            foreach (var m in movements)
+            {
+                m.OvertimePaymentRequestId = request.Id;
+            }
+
+            await _context.SaveChangesAsync();
+
+            // Materializa la cadena de firmas del documento (si está configurado).
+            _approvalResolver.MaterializeForRequest(ApprovalRequestType.OvertimePayment, request.Id, documentId, companyId, employeeCode);
         }
 
         /// <summary>
@@ -504,8 +567,15 @@ namespace PrenominaApi.Services.Prenomina
         /// <summary>
         /// Registra pago directo de horas extras (sin acumular)
         /// </summary>
-        public async Task<OvertimeOperationResult> PayOvertimeDirect(PayOvertimeDirectInput input, int companyId, string? userId)
+        public async Task<OvertimeOperationResult> PayOvertimeDirect(PayOvertimeDirectInput input, int companyId, string? userId, bool createPaymentRequest = true)
         {
+            // Sin formato de horas extras no se puede generar la papeleta -> no se permite pagar.
+            // (En lote la validación se hace una vez en ProcessOvertimesBatch.)
+            if (createPaymentRequest)
+            {
+                await EnsureOvertimePaymentDocumentExists();
+            }
+
             var accumulation = await GetOrCreateAccumulation(input.EmployeeCode, companyId);
             accumulation.PaidMinutes += input.Minutes;
             accumulation.UpdatedAt = DateTime.UtcNow;
@@ -528,6 +598,14 @@ namespace PrenominaApi.Services.Prenomina
 
             _context.overtimeMovementLogs.Add(movementLog);
             await _context.SaveChangesAsync();
+
+            // Pago individual: genera su papeleta de inmediato. En lote se omite aquí y se crea
+            // una sola papeleta por empleado (ver ProcessOvertimesBatch).
+            if (createPaymentRequest)
+            {
+                await CreateOvertimePaymentRequest(input.EmployeeCode, companyId, userId,
+                    new List<int> { movementLog.Id }, input.Minutes, input.Notes);
+            }
 
             return new OvertimeOperationResult
             {
@@ -988,6 +1066,12 @@ namespace PrenominaApi.Services.Prenomina
             string tenant,
             string? userId)
         {
+            // Si es pago, validar que exista el formato de horas extras antes de procesar nada.
+            if (!input.Accumulate)
+            {
+                await EnsureOvertimePaymentDocumentExists();
+            }
+
             var summaries = await GetOvertimeSummary(input.TypeNomina, input.NumPeriod, companyId, tenant);
             var results = new List<OvertimeOperationResult>();
 
@@ -998,6 +1082,11 @@ namespace PrenominaApi.Services.Prenomina
                 {
                     continue;
                 }
+
+                // En pago, se acumulan los movimientos del empleado para generar UNA sola
+                // papeleta por empleado (no se agrupan trabajadores).
+                var paidMovementIds = new List<int>();
+                var paidMinutes = 0;
 
                 foreach (var day in summary.DayDetails.Where(d => d.Status == OvertimeDayStatus.Pending))
                 {
@@ -1017,6 +1106,7 @@ namespace PrenominaApi.Services.Prenomina
                     }
                     else
                     {
+                        // createPaymentRequest: false -> la papeleta se crea una vez por empleado abajo.
                         result = await PayOvertimeDirect(new PayOvertimeDirectInput
                         {
                             EmployeeCode = summary.EmployeeCode,
@@ -1025,10 +1115,23 @@ namespace PrenominaApi.Services.Prenomina
                             CheckIn = day.CheckIn,
                             CheckOut = day.CheckOut,
                             Notes = input.Notes ?? $"Pago directo en lote - Período {input.NumPeriod}"
-                        }, companyId, userId);
+                        }, companyId, userId, createPaymentRequest: false);
+
+                        if (result.Success && result.MovementId.HasValue)
+                        {
+                            paidMovementIds.Add(result.MovementId.Value);
+                            paidMinutes += day.OvertimeMinutes;
+                        }
                     }
 
                     results.Add(result);
+                }
+
+                // Una sola papeleta de pago por empleado, con todas sus horas pagadas en el lote.
+                if (!input.Accumulate && paidMovementIds.Count > 0)
+                {
+                    await CreateOvertimePaymentRequest(summary.EmployeeCode, companyId, userId,
+                        paidMovementIds, paidMinutes, input.Notes ?? $"Pago en lote - Período {input.NumPeriod}");
                 }
             }
 
