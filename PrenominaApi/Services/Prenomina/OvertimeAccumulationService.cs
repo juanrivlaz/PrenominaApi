@@ -1436,7 +1436,7 @@ namespace PrenominaApi.Services.Prenomina
             OvertimeDayStatus.Accumulated => "Acumulado",
             OvertimeDayStatus.Paid => "Pagado",
             OvertimeDayStatus.Cancelled => "Cancelado",
-            OvertimeDayStatus.HourBank => "Banco de Horas",
+            OvertimeDayStatus.HourBank => "Descartado",
             _ => "Desconocido"
         };
 
@@ -1447,7 +1447,7 @@ namespace PrenominaApi.Services.Prenomina
             OvertimeMovementType.DirectPayment => "Pago directo",
             OvertimeMovementType.ManualAdjustment => "Ajuste manual",
             OvertimeMovementType.Cancellation => "Cancelación",
-            OvertimeMovementType.HourBank => "Banco de Horas",
+            OvertimeMovementType.HourBank => "Horas descartadas",
             OvertimeMovementType.ExternalEntry => "Registro externo",
             OvertimeMovementType.UsedForTimeOff => "Usado en permiso",
             _ => "Desconocido"
