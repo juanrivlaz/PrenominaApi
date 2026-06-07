@@ -190,6 +190,9 @@ namespace PrenominaApi.Services.Utilities
                             var displayName = NameFormatter.Format(employee.Name, employee.LastName, employee.MLastName, nameOrder);
 
                             var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
+                            // Mantener el bloque del empleado (encabezado + entrada + salida) junto:
+                            // evita que las filas de entrada/salida se dividan en un salto de página.
+                            table.SetKeepTogether(true);
                             table.AddHeaderCell(AddCellToHeadToAttendance(
                                 $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", listDates.Count, TextAlignment.LEFT, 10, true, true, true));
                             table.AddHeaderCell(AddCellToHeadToAttendance("Firma", 1, TextAlignment.CENTER, 1, false, true, true, false));

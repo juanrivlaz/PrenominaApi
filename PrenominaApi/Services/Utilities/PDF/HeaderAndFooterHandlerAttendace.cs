@@ -15,7 +15,8 @@ namespace PrenominaApi.Services.Utilities.PDF
 {
     public class HeaderAndFooterHandlerAttendace : AbstractPdfDocumentEventHandler
     {
-        private const float LogoSize = 40f;
+        private const float LogoMaxWidth = 120f;
+        private const float LogoMaxHeight = 46f;
 
         protected Document doc;
         private PdfFont font;
@@ -72,12 +73,23 @@ namespace PrenominaApi.Services.Utilities.PDF
             PdfPage page = docEvent.GetPage();
             int pageNumber = pdfDoc.GetPageNumber(page);
 
-            float marginX = 180;
-            float availableWidth = pageSize.GetWidth() - 215;
+            float pageTop = pageSize.GetTop();
+            float xLeft = coorLeft;
+            float fullWidth = coorRight - coorLeft;
 
+            // Logo arriba del título (alineado a la izquierda).
+            float logoTopY = pageTop - 6;
+            var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: LogoMaxWidth, maxHeight: LogoMaxHeight);
+            float titleY = logoImage != null ? logoTopY - LogoMaxHeight - 12 : pageTop - 22;
+            float rfcY = titleY - 12;
+            float infoRowY = rfcY - 18;
+
+            // Tabla de leyenda de incidencias: ocupa todo el ancho desde la izquierda
+            // (sin hueco) y se ubica debajo de la fila de información.
+            float legendBottomY = infoRowY - 26;
             Table tagTable = new Table(6)
-                .SetWidth(availableWidth)
-                .SetFixedPosition(marginX, coorTop - 76, availableWidth);
+                .SetWidth(fullWidth)
+                .SetFixedPosition(xLeft, legendBottomY, fullWidth);
 
             var distinctList = onlyIncidentCodeLabels
             .GroupBy(x => new { x.IncidentCode, x.IncidentCodeLabel })
@@ -100,32 +112,17 @@ namespace PrenominaApi.Services.Utilities.PDF
 
             canvas.Add(tagTable);
 
-            float pageTop = pageSize.GetTop();
-            float xLeft = coorLeft;
-
-            // Logo arriba del título (alineado a la izquierda).
-            float logoTopY = pageTop - 8;
-            var logoImage = LogoHelper.BuildPdfImage(logoDataUrl, maxWidth: LogoSize, maxHeight: LogoSize);
-            float titleY;
             if (logoImage != null)
             {
                 var logoTable = new Table(1)
-                    .SetWidth(LogoSize)
-                    .SetFixedPosition(xLeft, logoTopY - LogoSize, LogoSize);
+                    .SetWidth(LogoMaxWidth)
+                    .SetFixedPosition(xLeft, logoTopY - LogoMaxHeight, LogoMaxWidth);
                 logoTable.AddCell(new Cell()
                     .Add(logoImage)
                     .SetBorder(Border.NO_BORDER)
                     .SetPadding(0));
                 canvas.Add(logoTable);
-                titleY = logoTopY - LogoSize - 12;
             }
-            else
-            {
-                titleY = pageTop - 22;
-            }
-
-            float rfcY = titleY - 12;
-            float infoRowY = rfcY - 18;
 
             // Lado derecho: título del reporte y fecha.
             canvas.SetFont(font!)
