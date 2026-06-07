@@ -406,6 +406,31 @@ namespace PrenominaApi.Services.Prenomina
             return true;
         }
 
+        // Recalcula los candidatos de los niveles aún no firmados de una solicitud (sin recrearla).
+        public ReResolveResult ExecuteProcess(ReResolveChain input)
+        {
+            if (string.IsNullOrEmpty(input.Id))
+            {
+                throw new BadHttpRequestException("El Id de la solicitud de ausencia es requerido");
+            }
+
+            var item = _repository.GetById(Guid.Parse(input.Id));
+            if (item == null)
+            {
+                throw new BadHttpRequestException("La solicitud de ausencia no existe");
+            }
+
+            var changed = _approvalResolver.ReResolveForAbsenceRequest(item.Id, (int)item.CompanyId, item.EmployeeCode);
+
+            return new ReResolveResult
+            {
+                Changed = changed,
+                Message = changed > 0
+                    ? $"Se actualizaron {changed} nivel(es) de firma."
+                    : "No hubo cambios en la cadena de firmas.",
+            };
+        }
+
         public bool ExecuteProcess(ChangeStatus changeStatus)
         {
             if (string.IsNullOrEmpty(changeStatus.Id))

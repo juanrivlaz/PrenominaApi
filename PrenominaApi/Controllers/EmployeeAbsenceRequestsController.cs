@@ -37,6 +37,14 @@ namespace PrenominaApi.Controllers
             return Ok(result);
         }
 
+        [HttpPost("{id}/reresolve")]
+        public ActionResult<ReResolveResult> ReResolve(string id)
+        {
+            var result = _service.ExecuteProcess<ReResolveChain, ReResolveResult>(new ReResolveChain { Id = id });
+
+            return Ok(result);
+        }
+
         [HttpPut("{id}/status")]
         public ActionResult<bool> ChangeStatus(string id, [FromBody] ChangeStatus changeStatus)
         {

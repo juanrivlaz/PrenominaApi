@@ -86,6 +86,63 @@ namespace PrenominaApi.Services.Prenomina
         }
 
         /// <summary>
+        /// Recalcula los candidatos de los niveles aún no firmados (Pending/Blocked) de una
+        /// solicitud ya creada, sin recrearla. Útil tras corregir asignaciones de responsables.
+        /// Devuelve cuántos niveles cambiaron.
+        /// </summary>
+        public int ReResolveForAbsenceRequest(Guid absenceRequestId, int companyId, int employeeCode)
+        {
+            var levels = _context.absenceRequestApprovals
+                .Where(a => a.AbsenceRequestId == absenceRequestId)
+                .ToList();
+
+            if (levels.Count == 0)
+            {
+                return 0;
+            }
+
+            var department = _keyRepository.GetContextEntity()
+                .AsNoTracking()
+                .Where(k => (int)k.Codigo == employeeCode && k.Company == companyId)
+                .Select(k => k.Center)
+                .FirstOrDefault()?
+                .Trim();
+
+            var changed = 0;
+            foreach (var level in levels)
+            {
+                // Solo niveles aún no resueltos; los aprobados/rechazados/omitidos no se tocan
+                // (evita reactivar niveles fuera de orden).
+                if (level.Status != ApprovalInstanceStatus.Pending && level.Status != ApprovalInstanceStatus.Blocked)
+                {
+                    continue;
+                }
+
+                var candidates = ResolveCandidates(level.RoleId, level.Scope, companyId, department);
+                var newCsv = candidates.Count > 0 ? string.Join(",", candidates) : null;
+                var newStatus = candidates.Count > 0
+                    ? ApprovalInstanceStatus.Pending
+                    : (level.IsOptional ? ApprovalInstanceStatus.Skipped : ApprovalInstanceStatus.Blocked);
+
+                if (level.ResolvedCandidateUserIds != newCsv || level.Status != newStatus)
+                {
+                    level.ResolvedCandidateUserIds = newCsv;
+                    level.Status = newStatus;
+                    level.UpdatedAt = DateTime.UtcNow;
+                    _context.absenceRequestApprovals.Update(level);
+                    changed++;
+                }
+            }
+
+            if (changed > 0)
+            {
+                _context.SaveChanges();
+            }
+
+            return changed;
+        }
+
+        /// <summary>
         /// Devuelve los usuarios que pueden firmar un nivel dado, según rol y alcance.
         /// </summary>
         public List<Guid> ResolveCandidates(Guid roleId, ApprovalScope scope, int companyId, string? department)
@@ -104,18 +161,35 @@ namespace PrenominaApi.Services.Prenomina
                     return new List<Guid>();
                 }
 
-                var dept = department.Trim();
+                var target = NormalizeDeptCode(department);
 
-                return (
+                // La comparación se hace en memoria porque el centro del empleado puede venir con
+                // ceros a la izquierda (ej. '02') mientras que al usuario se le guarda como int
+                // ('2'). El conjunto (usuarios con el rol en la empresa) es pequeño.
+                var rows = (
                     from b in baseQuery
                     join ud in _context.userDepartments.AsNoTracking() on b.UserCompanyId equals ud.UserCompanyId
-                    where ud.DepartmentCode.Trim() == dept
-                    select b.UserId
-                ).Distinct().ToList();
+                    select new { b.UserId, ud.DepartmentCode }
+                ).ToList();
+
+                return rows
+                    .Where(r => NormalizeDeptCode(r.DepartmentCode) == target)
+                    .Select(r => r.UserId)
+                    .Distinct()
+                    .ToList();
             }
 
             // Company: cualquier usuario con el rol en la empresa.
             return baseQuery.Select(b => b.UserId).Distinct().ToList();
+        }
+
+        // Normaliza un código de departamento/centro para comparar de forma robusta:
+        // si es numérico se elimina el padding de ceros ('02' -> '2'); si no, se compara
+        // sin espacios y en mayúsculas.
+        private static string NormalizeDeptCode(string? code)
+        {
+            var trimmed = (code ?? string.Empty).Trim();
+            return int.TryParse(trimmed, out var n) ? n.ToString() : trimmed.ToUpperInvariant();
         }
     }
 }
