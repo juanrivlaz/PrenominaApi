@@ -267,12 +267,14 @@ namespace PrenominaApi.Services
                             // Si el cutoff sobrepasa medianoche (>= endTime), tomamos rangos válidos
                             // En general endTime es < 12:00 para nocturno, así que cutoff queda en la mañana.
 
+                            // Tomamos la salida MÁS TARDÍA dentro de la ventana de gracia:
+                            // ante varias checadas de salida en la madrugada (ej. 05:59, 06:00,
+                            // 06:01, 06:02) la real es la última (06:02), no la primera.
                             var candidate = nextChecks
                                 .Where(x => x.EoS == EntryOrExit.Exit &&
                                             !consumedExitIds.Contains(x.Id) &&
                                             x.CheckIn < cutoff)
-                                .OrderBy(x => x.CheckIn)
-                                .FirstOrDefault();
+                                .MaxBy(x => x.CheckIn);
 
                             if (candidate != null)
                             {
