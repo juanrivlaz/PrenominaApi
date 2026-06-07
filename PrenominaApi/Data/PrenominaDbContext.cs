@@ -35,7 +35,7 @@ namespace PrenominaApi.Data
         public DbSet<AuditLog> auditLogs { get; set; }
         public DbSet<EmployeeCheckIns> employeeCheckIns { get; set; }
         public DbSet<IncidentApprover> incidentApprovers { get; set; }
-        public DbSet<IncidentApprovalStep> incidentApprovalSteps { get; set; }
+        public DbSet<DocumentApprovalStep> documentApprovalSteps { get; set; }
         public DbSet<AbsenceRequestApproval> absenceRequestApprovals { get; set; }
         public DbSet<ApproverDelegation> approverDelegations { get; set; }
         public DbSet<IncidentCode> incidentCodes { get; set; }

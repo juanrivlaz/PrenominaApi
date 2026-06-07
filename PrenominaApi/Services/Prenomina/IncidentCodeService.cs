@@ -11,7 +11,6 @@ namespace PrenominaApi.Services.Prenomina
         public readonly IBaseRepositoryPrenomina<IncidentCodeMetadata> _incidentCodeMetadataRepo;
         public readonly IBaseRepositoryPrenomina<IncidentApprover> _incidentApproverRepo;
         public readonly IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> _incidentCodeAllowedRolesRepo;
-        public readonly IBaseRepositoryPrenomina<IncidentApprovalStep> _approvalStepRepo;
         private readonly ICacheService _cacheService;
 
         public IncidentCodeService(
@@ -20,14 +19,12 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<IncidentCodeMetadata> incidentCodeMetadataRepo,
             IBaseRepositoryPrenomina<IncidentApprover> incidentApproverRepo,
             IBaseRepositoryPrenomina<IncidentCodeAllowedRoles> incidentCodeAllowedRolesRepo,
-            IBaseRepositoryPrenomina<IncidentApprovalStep> approvalStepRepo,
             ICacheService cacheService
         ) : base(baseRepository) {
             _userRepository = userRepository;
             _incidentCodeMetadataRepo = incidentCodeMetadataRepo;
             _incidentApproverRepo = incidentApproverRepo;
             _incidentCodeAllowedRolesRepo = incidentCodeAllowedRolesRepo;
-            _approvalStepRepo = approvalStepRepo;
             _cacheService = cacheService;
         }
 
@@ -35,50 +32,7 @@ namespace PrenominaApi.Services.Prenomina
         {
             var result = _repository.GetContextEntity().Include(ic => ic.IncidentApprovers).Include(ic => ic.IncidentCodeAllowedRoles).Include(ic => ic.IncidentCodeMetadata).ToList();
 
-            // Adjuntar la cadena de firmas (plantilla global por código) para edición.
-            var codes = result.Select(r => r.Code).ToList();
-            var stepsByCode = _approvalStepRepo.GetByFilter(s => codes.Contains(s.IncidentCode))
-                .ToList()
-                .GroupBy(s => s.IncidentCode)
-                .ToDictionary(g => g.Key, g => g.OrderBy(s => s.StepOrder).ToList());
-
-            foreach (var code in result)
-            {
-                code.ApprovalSteps = stepsByCode.TryGetValue(code.Code, out var steps)
-                    ? steps
-                    : new List<IncidentApprovalStep>();
-            }
-
             return result;
-        }
-
-        // Reemplaza la cadena de firmas de un código por la enviada (orden según la lista).
-        private void ReplaceApprovalSteps(string incidentCode, List<ApprovalStepInput>? steps)
-        {
-            var existing = _approvalStepRepo.GetByFilter(s => s.IncidentCode == incidentCode).ToList();
-            foreach (var step in existing)
-            {
-                _approvalStepRepo.Delete(step);
-            }
-
-            if (steps != null)
-            {
-                var order = 1;
-                foreach (var step in steps.OrderBy(s => s.StepOrder))
-                {
-                    _approvalStepRepo.Create(new IncidentApprovalStep
-                    {
-                        IncidentCode = incidentCode,
-                        StepOrder = order++,
-                        RoleId = step.RoleId,
-                        Scope = step.Scope,
-                        Mode = step.Mode,
-                        IsOptional = step.IsOptional,
-                    });
-                }
-            }
-
-            _approvalStepRepo.Save();
         }
 
         public IncidentCode ExecuteProcess(CreateIncidentCode incidentCode)
@@ -110,7 +64,8 @@ namespace PrenominaApi.Services.Prenomina
                 RequiredApproval = incidentCode.RequiredApproval,
                 WithOperation = incidentCode.WithOperation,
                 RestrictedWithRoles = incidentCode.RestrictedWithRoles,
-                AvailableForTimeOff = incidentCode.AvailableForTimeOff
+                AvailableForTimeOff = incidentCode.AvailableForTimeOff,
+                DocumentId = incidentCode.DocumentId
             };
 
             if (incidentCode.WithOperation && incidentCode.Metadata is not null)
@@ -147,8 +102,6 @@ namespace PrenominaApi.Services.Prenomina
 
             var result = _repository.Create(newIncidentCode);
             _repository.Save();
-
-            ReplaceApprovalSteps(newIncidentCode.Code, incidentCode.ApprovalSteps);
 
             _cacheService.Remove(CacheKeys.IncidentCodes);
 
@@ -192,6 +145,7 @@ namespace PrenominaApi.Services.Prenomina
                 incident.WithOperation = incidentCode.WithOperation;
                 incident.RestrictedWithRoles = incidentCode.RestrictedWithRoles;
                 incident.AvailableForTimeOff = incidentCode.AvailableForTimeOff;
+                incident.DocumentId = incidentCode.DocumentId;
 
                 var incidentMetadata = _incidentCodeMetadataRepo.GetById(incident.MetadataId!);
 
@@ -286,8 +240,6 @@ namespace PrenominaApi.Services.Prenomina
 
                 _repository.Update(incident);
                 _repository.Save();
-
-                ReplaceApprovalSteps(incident.Code, incidentCode.ApprovalSteps);
 
                 incident.IncidentApprovers = incidentApprovers;
 

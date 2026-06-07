@@ -7,20 +7,22 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace PrenominaApi.Models.Prenomina
 {
     /// <summary>
-    /// Define un nivel (paso) de la cadena de firmas para un código de incidencia y empresa.
-    /// La cadena ordenada de estos pasos describe quién debe firmar y en qué orden.
+    /// Un nivel (paso) de la cadena de firmas configurada en un documento/contrato.
+    /// La cadena ordenada de estos pasos describe quién firma y en qué orden. El documento
+    /// se asigna a un código de incidencia, y desde ahí se toma la cadena al registrar el permiso.
     /// </summary>
-    [Auditable("Nivel de aprobación", SectionCode.IncidentCode, IdentifierProperties = new[] { "IncidentCode" })]
-    [Index(nameof(IncidentCode))]
-    [Table("incident_approval_step")]
-    public class IncidentApprovalStep
+    [Auditable("Nivel de aprobación", SectionCode.Contract, IdentifierProperties = new[] { "DocumentId" })]
+    [Index(nameof(DocumentId))]
+    [Table("document_approval_step")]
+    public class DocumentApprovalStep
     {
         [Key]
         [Column("id")]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        [Column("incident_code")]
-        public required string IncidentCode { get; set; }
+        /// <summary>Documento/contrato dueño de la cadena.</summary>
+        [Column("document_id")]
+        public required Guid DocumentId { get; set; }
 
         /// <summary>Orden de firma (1 = primero en firmar).</summary>
         [Column("step_order")]

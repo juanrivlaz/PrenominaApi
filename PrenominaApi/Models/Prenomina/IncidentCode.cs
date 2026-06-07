@@ -34,6 +34,9 @@ namespace PrenominaApi.Models.Prenomina
         public bool AvailableForTimeOff { get; set; } = false;
         [Column("metadata_id")]
         public Guid? MetadataId { get; set; }
+        /// <summary>Documento/contrato asignado; define la cadena de firmas del permiso.</summary>
+        [Column("document_id")]
+        public Guid? DocumentId { get; set; }
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         [Column("updated_at")]
@@ -58,7 +61,5 @@ namespace PrenominaApi.Models.Prenomina
         public virtual IEnumerable<IncidentCodeAllowedRoles>? IncidentCodeAllowedRoles { get; set; }
         [NotMapped]
         public virtual IEnumerable<EmployeeAbsenceRequests>? EmployeeAbsenceRequests { get; set; }
-        [NotMapped]
-        public virtual IEnumerable<IncidentApprovalStep>? ApprovalSteps { get; set; }
         }
 }

@@ -45,8 +45,47 @@ namespace PrenominaApi.Services.Prenomina
                 Path = d.Path,
                 Content = d.Content,
                 Module = d.Module,
-                KeyParams = d.KeyParams
+                KeyParams = d.KeyParams,
+                ApprovalSteps = _context.documentApprovalSteps
+                    .AsNoTracking()
+                    .Where(s => s.DocumentId == d.Id)
+                    .OrderBy(s => s.StepOrder)
+                    .Select(s => new DocumentApprovalStepOutput
+                    {
+                        StepOrder = s.StepOrder,
+                        RoleId = s.RoleId,
+                        Scope = (int)s.Scope,
+                        Mode = (int)s.Mode,
+                        IsOptional = s.IsOptional,
+                    })
+                    .ToList()
             };
+        }
+
+        // Reemplaza la cadena de firmas de un documento por la enviada (orden por posición).
+        private void ReplaceApprovalSteps(Guid documentId, List<Models.Dto.Input.ApprovalStepInput>? steps)
+        {
+            var existing = _context.documentApprovalSteps.Where(s => s.DocumentId == documentId).ToList();
+            _context.documentApprovalSteps.RemoveRange(existing);
+
+            if (steps != null)
+            {
+                var order = 1;
+                foreach (var step in steps.OrderBy(s => s.StepOrder))
+                {
+                    _context.documentApprovalSteps.Add(new DocumentApprovalStep
+                    {
+                        DocumentId = documentId,
+                        StepOrder = order++,
+                        RoleId = step.RoleId,
+                        Scope = step.Scope,
+                        Mode = step.Mode,
+                        IsOptional = step.IsOptional,
+                    });
+                }
+            }
+
+            _context.SaveChanges();
         }
 
         public DocumentOutput Create(DocumentInput dto)
@@ -68,6 +107,8 @@ namespace PrenominaApi.Services.Prenomina
 
             _context.documents.Add(entity);
             _context.SaveChanges();
+
+            ReplaceApprovalSteps(entity.Id, dto.ApprovalSteps);
 
             return new DocumentOutput
             {
@@ -99,6 +140,8 @@ namespace PrenominaApi.Services.Prenomina
             entity.UpdatedAt = DateTime.UtcNow;
 
             _context.SaveChanges();
+
+            ReplaceApprovalSteps(entity.Id, dto.ApprovalSteps);
             return true;
         }
 

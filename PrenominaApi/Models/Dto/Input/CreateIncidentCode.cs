@@ -17,7 +17,7 @@ namespace PrenominaApi.Models.Dto.Input
         public CreateIncidentCodeMetadata? Metadata { get; set; }
         public virtual List<string>? IncidentApprovers { get; set; }
         public virtual List<string>? AllowedRoles { get; set; }
-        /// <summary>Cadena de firmas (rol + alcance + orden). Si viene, reemplaza la existente.</summary>
-        public virtual List<ApprovalStepInput>? ApprovalSteps { get; set; }
+        /// <summary>Documento/contrato asignado; su cadena de firmas se usa en el permiso.</summary>
+        public Guid? DocumentId { get; set; }
     }
 }

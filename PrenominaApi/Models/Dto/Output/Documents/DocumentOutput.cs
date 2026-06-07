@@ -10,5 +10,15 @@ namespace PrenominaApi.Models.Dto.Output.Documents
         public string? Content { get; set; }
         public DocumentModule Module { get; set; }
         public IEnumerable<string> KeyParams { get; set; } = new List<string>();
+        public List<DocumentApprovalStepOutput> ApprovalSteps { get; set; } = new();
+    }
+
+    public class DocumentApprovalStepOutput
+    {
+        public int StepOrder { get; set; }
+        public Guid RoleId { get; set; }
+        public int Scope { get; set; }
+        public int Mode { get; set; }
+        public bool IsOptional { get; set; }
     }
 }

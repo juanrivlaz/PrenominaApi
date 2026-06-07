@@ -29,11 +29,22 @@ namespace PrenominaApi.Services.Prenomina
         /// </summary>
         public void MaterializeForAbsenceRequest(Guid absenceRequestId, string incidentCode, int companyId, int employeeCode)
         {
-            // La plantilla de la cadena es global por código; la empresa solo se usa para
-            // resolver a los candidatos reales de cada nivel.
-            var steps = _context.incidentApprovalSteps
+            // La cadena se configura en el documento/contrato asignado al código de incidencia.
+            // La empresa solo se usa para resolver a los candidatos reales de cada nivel.
+            var documentId = _context.incidentCodes
                 .AsNoTracking()
-                .Where(s => s.IncidentCode == incidentCode)
+                .Where(c => c.Code == incidentCode)
+                .Select(c => c.DocumentId)
+                .FirstOrDefault();
+
+            if (documentId == null)
+            {
+                return; // El código no tiene contrato/documento asignado: sin cadena.
+            }
+
+            var steps = _context.documentApprovalSteps
+                .AsNoTracking()
+                .Where(s => s.DocumentId == documentId.Value)
                 .OrderBy(s => s.StepOrder)
                 .ToList();
 
