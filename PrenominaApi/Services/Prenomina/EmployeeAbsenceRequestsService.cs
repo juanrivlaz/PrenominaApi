@@ -86,6 +86,19 @@ namespace PrenominaApi.Services.Prenomina
 
             var keys = keyEmployee.Where(k => k.Company == companyId && employeeCodes.Contains((int)k.Codigo)).ToList();
 
+            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
+            var tenant = _globalPropertyService.Tenant;
+            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
+            {
+                keys = _globalPropertyService.TypeTenant == TypeTenant.Department
+                    ? keys.Where(k => k.Center == tenant).ToList()
+                    : keys.Where(k => k.Supervisor == Convert.ToDecimal(tenant)).ToList();
+
+                var allowedCodes = keys.Select(k => (int)k.Codigo).ToHashSet();
+                requests = requests.Where(r => allowedCodes.Contains(r.EmployeeCode)).ToList();
+                employeeCodes = requests.Select(r => r.EmployeeCode).Distinct().ToList();
+            }
+
             // ===== Multi-approval progress =====
             // Approvers configured per incidence code present in the requests.
             var incidentCodes = requests.Select(r => r.IncidentCode).Distinct().ToList();

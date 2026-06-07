@@ -41,6 +41,10 @@ namespace PrenominaApi.Middlewares
 
                 _globalPropertyService.UserId = context.User.FindFirst("UserId")?.Value;
 
+                // Centro/supervisor seleccionado (header "tenant"); "-999" = TODOS.
+                var tenantHeader = context.Request.Headers["tenant"].FirstOrDefault();
+                _globalPropertyService.Tenant = string.IsNullOrWhiteSpace(tenantHeader) ? "-999" : tenantHeader;
+
                 await _next(context);
             }
         }

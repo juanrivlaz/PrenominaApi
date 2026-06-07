@@ -330,6 +330,33 @@ namespace PrenominaApi.Services.Prenomina
                 return Enumerable.Empty<PendingIncidenceApprovalOutput>();
             }
 
+            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
+            var tenant = _globalPropertyService.Tenant;
+            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
+            {
+                var codes = pendingIncidents.Select(i => i.EmployeeCode).Distinct().ToList();
+                var keysQuery = _keyRepository.GetContextEntity()
+                    .Where(k => k.Company == input.CompanyId && codes.Contains((int)k.Codigo));
+
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    keysQuery = keysQuery.Where(k => k.Center == tenant);
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(tenant);
+                    keysQuery = keysQuery.Where(k => k.Supervisor == supervisorId);
+                }
+
+                var allowedCodes = keysQuery.Select(k => (int)k.Codigo).ToHashSet();
+                pendingIncidents = pendingIncidents.Where(i => allowedCodes.Contains(i.EmployeeCode)).ToList();
+
+                if (pendingIncidents.Count == 0)
+                {
+                    return Enumerable.Empty<PendingIncidenceApprovalOutput>();
+                }
+            }
+
             var incidentIds = pendingIncidents.Select(i => i.Id).ToHashSet();
             var incidentCodes = pendingIncidents.Select(i => i.IncidentCode).ToHashSet();
             var employeeCodes = pendingIncidents.Select(i => i.EmployeeCode).ToHashSet();

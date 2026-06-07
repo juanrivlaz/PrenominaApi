@@ -188,6 +188,33 @@ namespace PrenominaApi.Services.Prenomina
                 return new List<OvertimePaymentRequestOutput>();
             }
 
+            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
+            var tenant = _globalPropertyService.Tenant;
+            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
+            {
+                var codes = requests.Select(r => r.EmployeeCode).Distinct().ToList();
+                var keysQuery = _keyRepository.GetContextEntity().AsNoTracking()
+                    .Where(k => k.Company == companyId && codes.Contains((int)k.Codigo));
+
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    keysQuery = keysQuery.Where(k => k.Center == tenant);
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(tenant);
+                    keysQuery = keysQuery.Where(k => k.Supervisor == supervisorId);
+                }
+
+                var allowedCodes = (await keysQuery.Select(k => (int)k.Codigo).ToListAsync()).ToHashSet();
+                requests = requests.Where(r => allowedCodes.Contains(r.EmployeeCode)).ToList();
+
+                if (requests.Count == 0)
+                {
+                    return new List<OvertimePaymentRequestOutput>();
+                }
+            }
+
             var requestIds = requests.Select(r => r.Id).ToList();
             var chainsByRequest = (await _context.absenceRequestApprovals
                     .AsNoTracking()
