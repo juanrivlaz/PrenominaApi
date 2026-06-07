@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PrenominaApi.Attributes;
+using PrenominaApi.Models.Prenomina.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
