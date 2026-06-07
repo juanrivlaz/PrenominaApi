@@ -586,7 +586,8 @@ namespace PrenominaApi.Services.Prenomina
                     employeeCodes.Contains(employee.Codigo) && employee.Company == filterEmployee.CompanyId &&
                     employee.Active == 'S' &&
                     (!periodStart.HasValue || employee.LastMovement != 'B' || employee.LastMovementDate >= periodStart.Value) &&
-                    ($"{employee.Name} {employee.LastName} {employee.MLastName}".ToLower().Contains(searchTerm));
+                    ($"{employee.Name} {employee.LastName} {employee.MLastName}".ToLower().Contains(searchTerm) ||
+                     ((int)employee.Codigo).ToString().Contains(searchTerm));
             }
 
             var pagedEmployees = _employeeRepository.GetWithPagination(filterEmployee.Page, filterEmployee.PageSize, filter);
