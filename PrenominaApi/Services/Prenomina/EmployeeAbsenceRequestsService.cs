@@ -27,6 +27,8 @@ namespace PrenominaApi.Services.Prenomina
         private readonly IBaseRepositoryPrenomina<Role> _roleRepository;
         private readonly IBaseRepositoryPrenomina<User> _userRepository;
         private readonly IBaseRepositoryPrenomina<ApproverDelegation> _approverDelegationRepository;
+        private readonly IBaseRepositoryPrenomina<Document> _documentRepository;
+        private readonly DocumentPdfRenderer _documentPdfRenderer;
         private readonly ApprovalResolver _approvalResolver;
 
         public EmployeeAbsenceRequestsService(
@@ -44,6 +46,8 @@ namespace PrenominaApi.Services.Prenomina
             IBaseRepositoryPrenomina<Role> roleRepository,
             IBaseRepositoryPrenomina<User> userRepository,
             IBaseRepositoryPrenomina<ApproverDelegation> approverDelegationRepository,
+            IBaseRepositoryPrenomina<Document> documentRepository,
+            DocumentPdfRenderer documentPdfRenderer,
             ApprovalResolver approvalResolver
         ) : base(repository)
         {
@@ -60,6 +64,8 @@ namespace PrenominaApi.Services.Prenomina
             _roleRepository = roleRepository;
             _userRepository = userRepository;
             _approverDelegationRepository = approverDelegationRepository;
+            _documentRepository = documentRepository;
+            _documentPdfRenderer = documentPdfRenderer;
             _approvalResolver = approvalResolver;
         }
 
@@ -748,6 +754,73 @@ namespace PrenominaApi.Services.Prenomina
             _assistanceIncidentRepository.Save();
         }
 
+        // Renderiza el PDF del permiso usando el documento/contrato asignado: reemplaza los
+        // placeholders con datos reales y construye {{signatures}} a partir de la cadena de firmas.
+        private byte[] RenderPermitFromDocument(
+            Document document,
+            EmployeeAbsenceRequests item,
+            string companyName,
+            string employeeName,
+            string department,
+            string activity,
+            int days,
+            DateOnly returnDate,
+            string? logoDataUrl)
+        {
+            // Cadena de firmas materializada de esta solicitud (ordenada).
+            var chain = _absenceRequestApprovalRepository
+                .GetByFilter(a => a.AbsenceRequestId == item.Id)
+                .OrderBy(a => a.StepOrder)
+                .ToList();
+
+            var roleIds = chain.Select(c => c.RoleId).Distinct().ToList();
+            var roleLabels = roleIds.Count == 0
+                ? new Dictionary<Guid, string>()
+                : _roleRepository.GetByFilter(r => roleIds.Contains(r.Id)).ToDictionary(r => r.Id, r => r.Label);
+
+            var approverIds = chain.Where(c => c.ApprovedByUserId != null).Select(c => c.ApprovedByUserId!.Value).Distinct().ToList();
+            var approverNames = approverIds.Count == 0
+                ? new Dictionary<Guid, string>()
+                : _userRepository.GetByFilter(u => approverIds.Contains(u.Id)).ToDictionary(u => u.Id, u => u.Name);
+
+            var blocks = chain
+                .Where(c => c.Status != ApprovalInstanceStatus.Skipped)
+                .Select(c => new DocumentPdfRenderer.SignatureBlock
+                {
+                    RoleLabel = roleLabels.TryGetValue(c.RoleId, out var label) ? label : "Firma",
+                    SignedByName = c.Status == ApprovalInstanceStatus.Approved && c.ApprovedByUserId != null && approverNames.TryGetValue(c.ApprovedByUserId.Value, out var name) ? name : null,
+                    SignedAt = c.ApprovedAt?.ToString("dd/MM/yyyy"),
+                })
+                .ToList();
+
+            var signaturesHtml = DocumentPdfRenderer.BuildSignaturesHtml(employeeName, blocks);
+
+            // Logo opcional (data URL base64 de Apariencia) como <img>.
+            var logoHtml = string.IsNullOrWhiteSpace(logoDataUrl)
+                ? string.Empty
+                : $"<img src=\"{logoDataUrl}\" style=\"max-height:60px; max-width:180px;\" />";
+
+            var values = new Dictionary<string, string>
+            {
+                ["logo"] = logoHtml,
+                ["companyName"] = companyName,
+                ["today"] = item.CreatedAt.ToString("dd/MM/yyyy"),
+                ["employeeName"] = employeeName,
+                ["employeeActivity"] = activity,
+                ["employeeCode"] = item.EmployeeCode.ToString(),
+                ["departmentName"] = department,
+                ["permissionLabel"] = item.IncidentCodeItem?.Label ?? string.Empty,
+                ["totalDays"] = days.ToString(),
+                ["startDate"] = item.StartDate.ToString("dd/MM/yyyy"),
+                ["endDate"] = item.EndDate.ToString("dd/MM/yyyy"),
+                ["returnDate"] = returnDate.ToString("dd/MM/yyyy"),
+                ["notes"] = item.Notes ?? string.Empty,
+                ["signatures"] = signaturesHtml,
+            };
+
+            return _documentPdfRenderer.Render(document.Content!, values);
+        }
+
         public AbsenceRequestPdf ExecuteProcess(DownloadRequest downloadRequest)
         {
             if (string.IsNullOrEmpty(downloadRequest.Id))
@@ -790,22 +863,40 @@ namespace PrenominaApi.Services.Prenomina
             var appearance = _sysConfigService.ExecuteProcess<GetAppearance, SysAppearance>(new GetAppearance());
             var logo = appearance?.Logo;
 
-            var bytes = _permissionPdfService.Generate(
-                company.Name,
-                employeeFullName,
-                $"{item.EmployeeCode}",
-                $"{keys?.Tabulator.Activity}",
-                _globalPropertyService.TypeTenant == TypeTenant.Department ? keys?.CenterItem?.DepartmentName ?? string.Empty :
-                keys?.SupervisorItem?.Name ?? string.Empty,
-                item.CreatedAt.ToString("dd/MM/yyyy"),
-                item.IncidentCodeItem?.Label ?? string.Empty,
-                item.Notes ?? string.Empty,
-                item.StartDate.ToString("dd/MM/yyyy"),
-                item.EndDate.ToString("dd/MM/yyyy"),
-                returnDate.ToString("dd/MM/yyyy"),
-                days.ToString(),
-                logo
-            );
+            var department = _globalPropertyService.TypeTenant == TypeTenant.Department
+                ? keys?.CenterItem?.DepartmentName ?? string.Empty
+                : keys?.SupervisorItem?.Name ?? string.Empty;
+
+            byte[] bytes;
+
+            // Si el código tiene un documento/contrato asignado, se renderiza ese formato y las
+            // firmas se construyen desde la cadena de firmantes. Si no, se usa el formato fijo.
+            var document = item.IncidentCodeItem?.DocumentId != null
+                ? _documentRepository.GetById(item.IncidentCodeItem.DocumentId.Value)
+                : null;
+
+            if (document != null && !string.IsNullOrWhiteSpace(document.Content))
+            {
+                bytes = RenderPermitFromDocument(document, item, company.Name, employeeFullName, department, $"{keys?.Tabulator.Activity}", days, returnDate, logo);
+            }
+            else
+            {
+                bytes = _permissionPdfService.Generate(
+                    company.Name,
+                    employeeFullName,
+                    $"{item.EmployeeCode}",
+                    $"{keys?.Tabulator.Activity}",
+                    department,
+                    item.CreatedAt.ToString("dd/MM/yyyy"),
+                    item.IncidentCodeItem?.Label ?? string.Empty,
+                    item.Notes ?? string.Empty,
+                    item.StartDate.ToString("dd/MM/yyyy"),
+                    item.EndDate.ToString("dd/MM/yyyy"),
+                    returnDate.ToString("dd/MM/yyyy"),
+                    days.ToString(),
+                    logo
+                );
+            }
 
             // Sanitize filename: replace spaces and slashes
             var safeName = string.IsNullOrWhiteSpace(employeeFullName) ? $"Empleado_{item.EmployeeCode}" : employeeFullName.Replace(' ', '_');

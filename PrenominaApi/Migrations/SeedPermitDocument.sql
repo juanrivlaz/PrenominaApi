@@ -20,6 +20,7 @@ BEGIN
         N'Permiso para ausentarse del trabajo (ejemplo)',
         NULL,
         N'<div style="font-family: Arial, sans-serif; color:#1f2430;">
+  <div style="text-align:center; margin-bottom:8px;">{{logo}}</div>
   <h2 style="text-align:center; margin:0;">{{companyName}}</h2>
   <h3 style="text-align:center; margin:4px 0 20px; text-transform:uppercase;">Permiso para ausentarse del trabajo</h3>
 
@@ -49,20 +50,12 @@ BEGIN
   </table>
 
   <p style="margin:0 0 4px;">MOTIVOS / OBSERVACIONES / RAZONES:</p>
-  <p style="margin:0 0 48px;"><strong>{{notes}}</strong></p>
+  <p style="margin:0 0 16px;"><strong>{{notes}}</strong></p>
 
-  <table style="width:100%; border-collapse:collapse; text-align:center;">
-    <tr>
-      <td style="padding-top:8px; border-top:1px solid #000;">Firma Empleado</td>
-      <td style="width:24px;"></td>
-      <td style="padding-top:8px; border-top:1px solid #000;">Firma jefe Depto</td>
-      <td style="width:24px;"></td>
-      <td style="padding-top:8px; border-top:1px solid #000;">Vo. Bo. Dpto R.R.H.H</td>
-    </tr>
-  </table>
+  {{signatures}}
 </div>',
         2, -- DocumentModule.Permits
-        N'["companyName","today","employeeName","employeeActivity","employeeCode","departmentName","permissionLabel","totalDays","startDate","endDate","returnDate","notes"]',
+        N'["logo","companyName","today","employeeName","employeeActivity","employeeCode","departmentName","permissionLabel","totalDays","startDate","endDate","returnDate","notes","signatures"]',
         SYSUTCDATETIME(),
         SYSUTCDATETIME(),
         NULL

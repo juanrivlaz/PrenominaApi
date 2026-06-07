@@ -147,6 +147,7 @@ builder.Services.AddSingleton<PDFService>();
 builder.Services.AddSingleton<ContractPdfService>();
 builder.Services.AddSingleton<AdditionalPayPdfService>();
 builder.Services.AddSingleton<PermissionPdfService>();
+builder.Services.AddSingleton<DocumentPdfRenderer>();
 builder.Services.AddSingleton<AttendancePdfService>();
 builder.Services.AddSingleton<ReportPdfService>();
 builder.Services.AddScoped<ReportHeaderService>();
