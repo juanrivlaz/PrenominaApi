@@ -179,7 +179,7 @@ namespace PrenominaApi.Services.Prenomina
         {
             var requests = await _context.overtimePaymentRequests
                 .AsNoTracking()
-                .Where(r => r.CompanyId == companyId)
+                .Where(r => r.CompanyId == companyId && r.DeletedAt == null)
                 .OrderByDescending(r => r.CreatedAt)
                 .ToListAsync();
 
@@ -261,7 +261,7 @@ namespace PrenominaApi.Services.Prenomina
 
         public async Task<OvertimePaymentRequestDetailOutput> GetDetail(Guid id)
         {
-            var request = await _context.overtimePaymentRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
+            var request = await _context.overtimePaymentRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id && r.DeletedAt == null);
             if (request == null)
             {
                 throw new BadHttpRequestException("La solicitud de pago no existe.");

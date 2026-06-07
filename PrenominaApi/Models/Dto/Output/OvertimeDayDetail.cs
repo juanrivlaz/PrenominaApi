@@ -30,5 +30,15 @@ namespace PrenominaApi.Models.Dto.Output
         /// ID del movimiento si ya fue procesado
         /// </summary>
         public int? MovementId { get; set; }
+
+        /// <summary>
+        /// Solicitud/papeleta de pago asociada (solo en días pagados que generaron papeleta).
+        /// </summary>
+        public Guid? PaymentRequestId { get; set; }
+
+        /// <summary>
+        /// True si la papeleta de pago asociada ya fue aprobada por todos (no se puede cancelar).
+        /// </summary>
+        public bool PaymentRequestApproved { get; set; }
     }
 }

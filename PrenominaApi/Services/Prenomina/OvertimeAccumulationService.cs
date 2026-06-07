@@ -293,6 +293,19 @@ namespace PrenominaApi.Services.Prenomina
 
             var cancelledSet = new HashSet<int>(cancelledMovementIds);
 
+            // Estado de las papeletas de pago vinculadas a los pagos directos (para saber si un
+            // día pagado todavía se puede cancelar: solo si su papeleta NO está aprobada).
+            var paymentRequestIds = existingMovements
+                .Where(m => m.MovementType == OvertimeMovementType.DirectPayment && m.OvertimePaymentRequestId != null)
+                .Select(m => m.OvertimePaymentRequestId!.Value)
+                .Distinct()
+                .ToList();
+            var paymentRequestStatusById = paymentRequestIds.Count == 0
+                ? new Dictionary<Guid, AbsenceRequestStatus>()
+                : await _context.overtimePaymentRequests.AsNoTracking()
+                    .Where(r => paymentRequestIds.Contains(r.Id))
+                    .ToDictionaryAsync(r => r.Id, r => r.Status);
+
             // Obtener balances actuales
             var balances = await _context.overtimeAccumulations
                 .AsNoTracking()
@@ -402,7 +415,10 @@ namespace PrenominaApi.Services.Prenomina
                                 OvertimeFormatted = FormatMinutes(mov.Minutes),
                                 Status = movStatus,
                                 StatusLabel = GetStatusLabel(movStatus),
-                                MovementId = mov.Id
+                                MovementId = mov.Id,
+                                PaymentRequestId = mov.OvertimePaymentRequestId,
+                                PaymentRequestApproved = mov.OvertimePaymentRequestId != null
+                                    && paymentRequestStatusById.TryGetValue(mov.OvertimePaymentRequestId.Value, out var prStatusA) && prStatusA == AbsenceRequestStatus.Approved
                             });
                         }
                     }
@@ -458,7 +474,10 @@ namespace PrenominaApi.Services.Prenomina
                                 OvertimeFormatted = $"{FormatMinutes(mov.Minutes)} (externo)",
                                 Status = movStatus,
                                 StatusLabel = GetStatusLabel(movStatus),
-                                MovementId = mov.Id
+                                MovementId = mov.Id,
+                                PaymentRequestId = mov.OvertimePaymentRequestId,
+                                PaymentRequestApproved = mov.OvertimePaymentRequestId != null
+                                    && paymentRequestStatusById.TryGetValue(mov.OvertimePaymentRequestId.Value, out var prStatusB) && prStatusB == AbsenceRequestStatus.Approved
                             });
                         }
 
@@ -918,6 +937,29 @@ namespace PrenominaApi.Services.Prenomina
                 };
             }
 
+            // Si el movimiento es un pago directo vinculado a una papeleta de pago, la cancelación
+            // es en cascada: no se puede cancelar si la papeleta ya fue aprobada; si sigue pendiente,
+            // se elimina la papeleta y se revierten TODOS los pagos relacionados (vuelven a pendientes).
+            if (movement.MovementType == OvertimeMovementType.DirectPayment && movement.OvertimePaymentRequestId != null)
+            {
+                var paymentRequest = await _context.overtimePaymentRequests
+                    .FirstOrDefaultAsync(r => r.Id == movement.OvertimePaymentRequestId.Value && r.DeletedAt == null);
+
+                if (paymentRequest != null)
+                {
+                    if (paymentRequest.Status == AbsenceRequestStatus.Approved)
+                    {
+                        return new OvertimeOperationResult
+                        {
+                            Success = false,
+                            Message = "No se puede cancelar: la solicitud de pago ya fue aprobada."
+                        };
+                    }
+
+                    return await CancelPaymentRequestCascade(paymentRequest, input.Reason, companyId, userId);
+                }
+            }
+
             var accumulation = movement.OvertimeAccumulation!;
 
             // Revertir el efecto según el tipo de movimiento
@@ -969,6 +1011,90 @@ namespace PrenominaApi.Services.Prenomina
                 MovementId = cancellationLog.Id,
                 NewBalance = accumulation.AccumulatedMinutes,
                 NewBalanceFormatted = FormatMinutes(accumulation.AccumulatedMinutes)
+            };
+        }
+
+        /// <summary>
+        /// Cancela una papeleta de pago pendiente y revierte TODOS sus pagos directos: cada
+        /// movimiento de pago vinculado se cancela (se reintegran los minutos pagados, los días
+        /// vuelven a "pendientes"), se elimina (soft-delete) la papeleta y su cadena de firmas.
+        /// </summary>
+        private async Task<OvertimeOperationResult> CancelPaymentRequestCascade(
+            OvertimePaymentRequest request, string? reason, int companyId, string? userId)
+        {
+            var now = DateTime.UtcNow;
+            var byUser = Guid.Parse(userId ?? Guid.Empty.ToString());
+
+            var movements = await _context.overtimeMovementLogs
+                .Include(m => m.OvertimeAccumulation)
+                .Where(m => m.OvertimePaymentRequestId == request.Id
+                    && m.MovementType == OvertimeMovementType.DirectPayment)
+                .ToListAsync();
+
+            var movementIds = movements.Select(m => m.Id).ToList();
+            var alreadyCancelled = (await _context.overtimeMovementLogs
+                .Where(m => m.MovementType == OvertimeMovementType.Cancellation
+                    && m.RelatedMovementId != null
+                    && movementIds.Contains(m.RelatedMovementId.Value))
+                .Select(m => m.RelatedMovementId!.Value)
+                .ToListAsync())
+                .ToHashSet();
+
+            var cancelledCount = 0;
+            foreach (var movement in movements)
+            {
+                if (alreadyCancelled.Contains(movement.Id))
+                {
+                    continue;
+                }
+
+                var accumulation = movement.OvertimeAccumulation;
+                if (accumulation == null)
+                {
+                    continue;
+                }
+
+                accumulation.PaidMinutes -= movement.Minutes; // revertir lo pagado
+                accumulation.UpdatedAt = now;
+
+                _context.overtimeMovementLogs.Add(new OvertimeMovementLog
+                {
+                    OvertimeAccumulationId = accumulation.Id,
+                    EmployeeCode = movement.EmployeeCode,
+                    CompanyId = companyId,
+                    MovementType = OvertimeMovementType.Cancellation,
+                    Minutes = -movement.Minutes,
+                    BalanceAfter = accumulation.AccumulatedMinutes,
+                    SourceDate = movement.SourceDate,
+                    OvertimePaymentRequestId = request.Id,
+                    Notes = $"Cancelación de solicitud de pago: {reason}",
+                    ByUserId = byUser,
+                    RelatedMovementId = movement.Id,
+                    CreatedAt = now
+                });
+
+                cancelledCount++;
+            }
+
+            // Eliminar la papeleta y su cadena de firmas materializada.
+            var chain = await _context.absenceRequestApprovals
+                .Where(a => a.RequestType == ApprovalRequestType.OvertimePayment && a.AbsenceRequestId == request.Id)
+                .ToListAsync();
+            if (chain.Count > 0)
+            {
+                _context.absenceRequestApprovals.RemoveRange(chain);
+            }
+
+            request.Status = AbsenceRequestStatus.Rejected;
+            request.DeletedAt = now;
+            request.UpdatedAt = now;
+
+            await _context.SaveChangesAsync();
+
+            return new OvertimeOperationResult
+            {
+                Success = true,
+                Message = $"Solicitud de pago eliminada. Se revirtieron {cancelledCount} pago(s); las horas volvieron a pendientes."
             };
         }
 
