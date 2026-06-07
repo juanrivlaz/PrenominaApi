@@ -17,9 +17,17 @@ namespace PrenominaApi.Services.Utilities.PermissionPdf
         {
             var html = ReplacePlaceholders(htmlContent, values);
 
+            // Tipografía base igual a la del PDF anterior (Helvetica). Se aplica como default
+            // a todo el documento; las plantillas pueden sobreescribir con su propio estilo.
+            var styledHtml =
+                "<style>" +
+                "html, body, div, p, span, td, th, h1, h2, h3, h4 { font-family: Helvetica, Arial, sans-serif !important; }" +
+                "body { font-size: 11pt; color: #000; }" +
+                "</style>" + html;
+
             using var ms = new MemoryStream();
             var properties = new ConverterProperties();
-            HtmlConverter.ConvertToPdf(html, ms, properties);
+            HtmlConverter.ConvertToPdf(styledHtml, ms, properties);
             return ms.ToArray();
         }
 

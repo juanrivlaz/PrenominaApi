@@ -19,7 +19,7 @@ BEGIN
         NEWID(),
         N'Permiso para ausentarse del trabajo (ejemplo)',
         NULL,
-        N'<div style="font-family: Arial, sans-serif; color:#1f2430;">
+        N'<div style="font-family: Helvetica, Arial, sans-serif; color:#1f2430;">
   <div style="text-align:center; margin-bottom:8px;">{{logo}}</div>
   <h2 style="text-align:center; margin:0;">{{companyName}}</h2>
   <h3 style="text-align:center; margin:4px 0 20px; text-transform:uppercase;">Permiso para ausentarse del trabajo</h3>
