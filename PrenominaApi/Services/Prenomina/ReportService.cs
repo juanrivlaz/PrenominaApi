@@ -424,7 +424,12 @@ namespace PrenominaApi.Services.Prenomina
                     MIN(eci.check_in) AS CheckIn,
                     checkout.CheckOut,
                     eci.[date] AS [Date],
-                    DATEDIFF(HOUR, eci.check_in, checkout.CheckOut) AS HoursWorked,
+                    -- Si la salida es menor que la entrada es turno nocturno (cruza medianoche):
+                    -- se suman 24 horas para que el total nunca sea negativo.
+                    CASE WHEN DATEDIFF(HOUR, eci.check_in, checkout.CheckOut) < 0
+                         THEN DATEDIFF(HOUR, eci.check_in, checkout.CheckOut) + 24
+                         ELSE DATEDIFF(HOUR, eci.check_in, checkout.CheckOut)
+                    END AS HoursWorked,
                     '' AS Department,
                     '' AS FullName,
                     '' AS JobPosition
