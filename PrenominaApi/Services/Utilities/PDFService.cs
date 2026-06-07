@@ -192,7 +192,7 @@ namespace PrenominaApi.Services.Utilities
                             var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
                             table.AddHeaderCell(AddCellToHeadToAttendance(
                                 $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", listDates.Count, TextAlignment.LEFT, 10, true, true, true));
-                            table.AddHeaderCell(AddCellToHeadToAttendance("Observación", 1, TextAlignment.CENTER, 1, false, true, true, false));
+                            table.AddHeaderCell(AddCellToHeadToAttendance("Firma", 1, TextAlignment.CENTER, 1, false, true, true, false));
 
                             int indexDate = 1;
                             foreach (var date in listDates)
