@@ -11,6 +11,8 @@ namespace PrenominaApi.Models.Dto.Output.Documents
         public DocumentModule Module { get; set; }
         public IEnumerable<string> KeyParams { get; set; } = new List<string>();
         public List<DocumentApprovalStepOutput> ApprovalSteps { get; set; } = new();
+        /// <summary>Etiquetas de los roles que firman (cadena de firmas), en orden.</summary>
+        public List<string> Signers { get; set; } = new();
     }
 
     public class DocumentApprovalStepOutput

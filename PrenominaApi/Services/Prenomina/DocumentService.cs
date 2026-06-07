@@ -17,10 +17,35 @@ namespace PrenominaApi.Services.Prenomina
 
         public List<DocumentOutput> List()
         {
-            return _context.documents
+            var documents = _context.documents
                 .AsNoTracking()
                 .Where(d => d.DeletedAt == null)
                 .OrderBy(d => d.Name)
+                .ToList();
+
+            if (documents.Count == 0)
+            {
+                return new List<DocumentOutput>();
+            }
+
+            // Firmantes (roles de la cadena de firmas) por documento, en orden.
+            var docIds = documents.Select(d => d.Id).ToList();
+            var steps = _context.documentApprovalSteps
+                .AsNoTracking()
+                .Where(s => docIds.Contains(s.DocumentId))
+                .OrderBy(s => s.StepOrder)
+                .ToList();
+            var roleIds = steps.Select(s => s.RoleId).Distinct().ToList();
+            var roleLabels = _context.roles.AsNoTracking()
+                .Where(r => roleIds.Contains(r.Id))
+                .ToDictionary(r => r.Id, r => r.Label);
+            var signersByDoc = steps
+                .GroupBy(s => s.DocumentId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(s => roleLabels.TryGetValue(s.RoleId, out var label) ? label : "Rol").ToList());
+
+            return documents
                 .Select(d => new DocumentOutput
                 {
                     Id = d.Id,
@@ -28,7 +53,8 @@ namespace PrenominaApi.Services.Prenomina
                     Path = d.Path,
                     Content = d.Content,
                     Module = d.Module,
-                    KeyParams = d.KeyParams
+                    KeyParams = d.KeyParams,
+                    Signers = signersByDoc.TryGetValue(d.Id, out var signers) ? signers : new List<string>()
                 })
                 .ToList();
         }
