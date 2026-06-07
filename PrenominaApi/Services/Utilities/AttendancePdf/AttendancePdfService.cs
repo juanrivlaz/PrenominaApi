@@ -56,13 +56,16 @@ namespace PrenominaApi.Services.Utilities.AttendancePdf
             .ToList();
 
             Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
-            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo));
-            document.SetTopMargin(101);
+            pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new AttendancePdfHeader(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo, logoDataUrl));
+            document.SetTopMargin(135);
 
             foreach (var employee in employeeAttendances)
             {
                 var displayName = NameFormatter.Format(employee.Name, employee.LastName, employee.MLastName, nameOrder);
                 var table = new Table(listDates.Count + 1).UseAllAvailableWidth();
+                // Mantener el bloque del empleado junto: evita que entrada/salida se dividan
+                // en un salto de página.
+                table.SetKeepTogether(true);
                 table.AddHeaderCell(AddCellToHeadToAttendance(
                     $"Cod. {employee.Codigo} | {displayName} | {employee.Activity}", fontSize, listDates.Count, TextAlignment.LEFT, 5, true, true, true));
                 table.AddHeaderCell(AddCellToHeadToAttendance("Firma", fontSize, 1, TextAlignment.CENTER, 1, false, true, true, false));
