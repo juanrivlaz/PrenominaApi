@@ -183,7 +183,7 @@ namespace PrenominaApi.Services.Utilities
 
                         Document document = new Document(pdf, pageSize: PageSize.A4.Rotate());
                         pdf.AddEventHandler(PdfDocumentEvent.END_PAGE, new HeaderAndFooterHandlerAttendace(document, companyName, tenantName, typeNom, period, listIncidents, rfcInfo, logoDataUrl));
-                        document.SetTopMargin(120);
+                        document.SetTopMargin(135);
 
                         foreach (var employee in employeeAttendances)
                         {
