@@ -5,6 +5,7 @@ using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina;
+using PrenominaApi.Repositories;
 using PrenominaApi.Services.Prenomina.Helpers;
 using System.Text.Json;
 using Period = PrenominaApi.Models.Prenomina.Period;
@@ -31,17 +32,20 @@ namespace PrenominaApi.Services.Prenomina
 
         private readonly OvertimeAccumulationService _overtimeService;
         private readonly PrenominaDbContext _context;
+        private readonly IBaseRepository<Key> _keyRepository;
         private readonly IBaseServicePrenomina<Period> _periodService;
         private readonly GlobalPropertyService _globalPropertyService;
 
         public OvertimePaymentFileService(
             OvertimeAccumulationService overtimeService,
             PrenominaDbContext context,
+            IBaseRepository<Key> keyRepository,
             IBaseServicePrenomina<Period> periodService,
             GlobalPropertyService globalPropertyService)
         {
             _overtimeService = overtimeService;
             _context = context;
+            _keyRepository = keyRepository;
             _periodService = periodService;
             _globalPropertyService = globalPropertyService;
         }
@@ -67,11 +71,13 @@ namespace PrenominaApi.Services.Prenomina
 
             var summaries = await _overtimeService.GetOvertimeSummary(typeNomina, numPeriod, companyId, tenant);
 
-            // Sueldo diario por empleado.
-            var employeeCodes = summaries.Select(s => (decimal)s.EmployeeCode).ToList();
-            var salaries = await _context.Set<Employee>().AsNoTracking()
-                .Where(e => e.Company == companyId && employeeCodes.Contains(e.Codigo))
-                .ToDictionaryAsync(e => (int)e.Codigo, e => e.Salary);
+            // Sueldo diario por empleado (vía repositorio de Key → navegación Employee,
+            // ya que Employee no está registrado como DbSet en el contexto).
+            var employeeCodes = summaries.Select(s => s.EmployeeCode).ToList();
+            var salaries = await _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId && employeeCodes.Contains((int)k.Codigo))
+                .Select(k => new { Code = (int)k.Codigo, k.Employee.Salary })
+                .ToDictionaryAsync(x => x.Code, x => x.Salary);
 
             var lines = new List<OvertimePaymentConceptLine>();
 
