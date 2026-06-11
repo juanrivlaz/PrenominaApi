@@ -90,6 +90,7 @@ namespace PrenominaApi.Configuration
             services.AddScoped<OvertimeAccumulationService>();
             services.AddScoped<ApprovalFlowService>();
             services.AddScoped<OvertimePaymentRequestService>();
+            services.AddScoped<OvertimePaymentFileService>();
         }
     }
 }
