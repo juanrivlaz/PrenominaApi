@@ -402,11 +402,14 @@ namespace PrenominaApi.Services.Prenomina
                         )");
 
                     List<string> enrollNumbers = result.Select(x => x.EnrollNumber).Distinct().ToList();
-                    var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains(e.Codigo.ToString()) && e.Active == 'S' && e.LastMovement != 'B').Select(e =>
-                    (
-                        e.Codigo,
-                        e.Company
-                    )).ToList();
+                    // Un mismo empleado (Codigo) puede existir en varias empresas. Para determinar a qué
+                    // empresa pertenecen las checadas, se toma la empresa del registro con LastMovementDate más reciente.
+                    var listEmployesWithCompany = _employeeRepository
+                        .GetByFilter(e => enrollNumbers.Contains(e.Codigo.ToString()) && e.Active == 'S' && e.LastMovement != 'B')
+                        .GroupBy(e => e.Codigo)
+                        .Select(g => g.OrderByDescending(e => e.LastMovementDate).First())
+                        .Select(e => (e.Codigo, e.Company))
+                        .ToList();
 
                     if (!listEmployesWithCompany.Any())
                     {
@@ -417,11 +420,23 @@ namespace PrenominaApi.Services.Prenomina
                         return true;
                     }
 
-                    var empCodes = listEmployesWithCompany.Select(e => (int)e.Codigo).Distinct().ToList();
-                    var syncCompanyId = (int)listEmployesWithCompany.First().Company;
                     var dates = result.Select(r => new DateOnly(r.Year, r.Month, r.Day)).ToList();
-                    var syncScheduleMap = _scheduleResolver.GetSchedulesForEmployees(
-                        empCodes, syncCompanyId, dates.Min(), dates.Max());
+                    var syncMinDate = dates.Min();
+                    var syncMaxDate = dates.Max();
+
+                    // Resolver horarios usando la empresa real de cada empleado: un mismo lote puede
+                    // contener empleados de distintas empresas, así que se consulta por empresa.
+                    var syncScheduleMap = new Dictionary<int, WorkSchedule?>();
+                    foreach (var companyGroup in listEmployesWithCompany.GroupBy(e => (int)e.Company))
+                    {
+                        var groupCodes = companyGroup.Select(e => (int)e.Codigo).Distinct().ToList();
+                        var groupSchedules = _scheduleResolver.GetSchedulesForEmployees(
+                            groupCodes, companyGroup.Key, syncMinDate, syncMaxDate);
+                        foreach (var kv in groupSchedules)
+                        {
+                            syncScheduleMap[kv.Key] = kv.Value;
+                        }
+                    }
 
                     var newCheckIns = BuildCheckInsLogic(result, listEmployesWithCompany, syncScheduleMap);
                     var table = BuildEmployeeCheckInsTable(newCheckIns);
@@ -757,11 +772,18 @@ namespace PrenominaApi.Services.Prenomina
                         DateOnly minDate = dateRange.Min().AddDays(-1);
                         DateOnly maxDate = dateRange.Max();
 
-                        var listEmployesWithCompany = _employeeRepository.GetByFilter(e => enrollNumbers.Contains((int)e.Codigo) && e.Active == 'S' && e.LastMovement != 'B').Select(e => new
-                        {
-                            e.Codigo,
-                            e.Company
-                        }).ToList();
+                        // Un mismo empleado (Codigo) puede existir en varias empresas. Para determinar a qué
+                        // empresa pertenecen las checadas, se toma la empresa del registro con LastMovementDate más reciente.
+                        var listEmployesWithCompany = _employeeRepository
+                            .GetByFilter(e => enrollNumbers.Contains((int)e.Codigo) && e.Active == 'S' && e.LastMovement != 'B')
+                            .GroupBy(e => e.Codigo)
+                            .Select(g => g.OrderByDescending(e => e.LastMovementDate).First())
+                            .Select(e => new
+                            {
+                                e.Codigo,
+                                e.Company
+                            })
+                            .ToList();
 
                         if (!listEmployesWithCompany.Any())
                         {
@@ -774,10 +796,19 @@ namespace PrenominaApi.Services.Prenomina
                         var checkInsByEmployee = existingCheckIns.GroupBy(ci => ci.EmployeeCode).ToDictionary(g => g.Key, g => g.OrderBy(c => c.Date).ThenBy(c => c.CheckIn).ToList());
                         var newCheckIns = new List<EmployeeCheckIns>();
 
-                        // Pre-cargar horarios para clasificar correctamente turnos nocturnos
-                        var companyId0 = (int)listEmployesWithCompany.First().Company;
-                        var scheduleMap = _scheduleResolver.GetSchedulesForEmployees(
-                            enrollNumbers, companyId0, minDate, maxDate);
+                        // Pre-cargar horarios para clasificar correctamente turnos nocturnos.
+                        // Se resuelve por la empresa real de cada empleado (el lote puede mezclar empresas).
+                        var scheduleMap = new Dictionary<int, WorkSchedule?>();
+                        foreach (var companyGroup in listEmployesWithCompany.GroupBy(e => (int)e.Company))
+                        {
+                            var groupCodes = companyGroup.Select(e => (int)e.Codigo).Distinct().ToList();
+                            var groupSchedules = _scheduleResolver.GetSchedulesForEmployees(
+                                groupCodes, companyGroup.Key, minDate, maxDate);
+                            foreach (var kv in groupSchedules)
+                            {
+                                scheduleMap[kv.Key] = kv.Value;
+                            }
+                        }
 
                         foreach (var log in listCheckins)
                         {
