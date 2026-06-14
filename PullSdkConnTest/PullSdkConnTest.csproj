@@ -1,14 +1,34 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Prueba de conectividad PULL SDK. Proyecto desechable, NO parte de la solución productiva.
-       IMPORTANTE: plcommpro.dll y sus dependencias son x86 -> hay que compilar/correr en x86 y en Windows. -->
+  <!-- Prueba de conectividad OPCIÓN A: Standalone SDK (zkemkeeper, COM).
+       Es el MISMO SDK que usa ConnectZK/ZKBridgeApp en producción, el correcto
+       para terminales de asistencia (p.ej. ZKTeco MB460 Plus).
+       Proyecto desechable, NO parte de la solución productiva.
+
+       REQUISITOS para correr (Windows):
+         - Tener registrado el COM zkemkeeper:  regsvr32 zkemkeeper.dll  (como admin)
+         - zkemkeeper es 32-bit  ->  se compila/corre en x86.
+       Objetivo: confirmar (1) que CONECTA por TCP y (2) que el reloj devuelve
+                 checadas (General Log) y conteos de usuarios. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PlatformTarget>x86</PlatformTarget>
     <AssemblyName>PullSdkConnTest</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <COMReference Include="zkemkeeper">
+      <Guid>{FE9DED34-E159-408E-8490-B720A5E632C7}</Guid>
+      <VersionMajor>1</VersionMajor>
+      <VersionMinor>0</VersionMinor>
+      <Lcid>0</Lcid>
+      <WrapperTool>tlbimp</WrapperTool>
+      <Isolated>false</Isolated>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </COMReference>
+  </ItemGroup>
 
 </Project>
