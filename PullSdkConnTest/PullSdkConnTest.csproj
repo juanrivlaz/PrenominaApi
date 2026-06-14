@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Prueba de conectividad PULL SDK. Proyecto desechable, NO parte de la solución productiva.
+       IMPORTANTE: plcommpro.dll y sus dependencias son x86 -> hay que compilar/correr en x86 y en Windows. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>PullSdkConnTest</AssemblyName>
+  </PropertyGroup>
+
+</Project>
