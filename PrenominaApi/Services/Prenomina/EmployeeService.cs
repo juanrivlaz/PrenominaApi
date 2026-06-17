@@ -5,6 +5,7 @@ using PrenominaApi.Models.Dto.Input;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
+using PrenominaApi.Services.Utilities;
 
 namespace PrenominaApi.Services.Prenomina
 {
@@ -27,10 +28,11 @@ namespace PrenominaApi.Services.Prenomina
 
             if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
+                var allowedCenterCodes = ResolveCenterCodes(filterEmployee.CompanyId, filterEmployee.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == filterEmployee.CompanyId && 
-                    (filterEmployee.TypeNom >= 0 ? item.TypeNom == filterEmployee.TypeNom : true) && 
-                    (filterEmployee.Tenant != "-999" ? item.Center.Trim() == filterEmployee.Tenant : true)
+                    item => item.Company == filterEmployee.CompanyId &&
+                    (filterEmployee.TypeNom >= 0 ? item.TypeNom == filterEmployee.TypeNom : true) &&
+                    (filterEmployee.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
                 ).Include(k => k.Tabulator).Include(k => k.CenterItem).ToList();
             }
             else
@@ -102,6 +104,25 @@ namespace PrenominaApi.Services.Prenomina
                     };
                 })
             };
+        }
+
+        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
+        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
+        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        {
+            if (tenant == "-999" || tenant == "all")
+            {
+                return new HashSet<int>();
+            }
+
+            var target = TenantCode.Normalize(tenant);
+            return _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId)
+                .Select(k => new { k.Codigo, k.Center })
+                .ToList()
+                .Where(r => TenantCode.Normalize(r.Center) == target)
+                .Select(r => (int)r.Codigo)
+                .ToHashSet();
         }
     }
 }

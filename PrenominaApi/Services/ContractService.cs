@@ -8,6 +8,7 @@ using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
 using PrenominaApi.Services.Prenomina;
+using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Utilities.ContractPdf;
 
 namespace PrenominaApi.Services
@@ -50,13 +51,20 @@ namespace PrenominaApi.Services
             var centers = userDetails.Centers?.Select(c => c.Id.Trim()).ToArray() ?? [];
             var supervisors = userDetails.Supervisors?.Select(s => s.Id).ToArray() ?? [];
 
+            // El centro puede venir con ceros a la izquierda ('04') vs el tenant/centro del usuario
+            // como int ('4'); se normalizan ambos lados. Para el filtro de tenant (en SQL) se
+            // resuelven los códigos permitidos y se filtran con IN; los centros del usuario se
+            // comparan normalizados en memoria.
+            var allowedCenterCodes = ResolveCenterCodes(contractsInput.CompanyId, contractsInput.Tenant);
+            var normalizedUserCenters = centers.Select(TenantCode.Normalize).ToHashSet();
+
             var keys = _keyRepository.GetContextEntity().Include(k => k.CenterItem).Where(
                 item => item.Company == contractsInput.CompanyId &&
-                contractsInput.Tenant != "all" ? 
-                (contractsInput.TypeTenant == TypeTenant.Department ? item.Center.Trim() == contractsInput.Tenant : item.Supervisor == int.Parse(contractsInput.Tenant)) 
+                contractsInput.Tenant != "all" ?
+                (contractsInput.TypeTenant == TypeTenant.Department ? allowedCenterCodes.Contains((int)item.Codigo) : item.Supervisor == int.Parse(contractsInput.Tenant))
                 : true
             ).AsEnumerable().Where(item => userDetails!.role!.Code == RoleCode.Sudo ? true :
-                (contractsInput.TypeTenant == TypeTenant.Department ? (centers.Any() && centers.Contains(item.Center.Trim())) : (supervisors.Any() && supervisors.Contains(item.Supervisor)))).ToDictionary(k => (k.Codigo, k.Company));
+                (contractsInput.TypeTenant == TypeTenant.Department ? (centers.Any() && normalizedUserCenters.Contains(TenantCode.Normalize(item.Center))) : (supervisors.Any() && supervisors.Contains(item.Supervisor)))).ToDictionary(k => (k.Codigo, k.Company));
 
             var employeeCodes = keys.Keys.Select(k => k.Codigo).ToHashSet();
             var ocupations = keys.Values.Select(k => k.Ocupation).ToHashSet();
@@ -232,6 +240,25 @@ namespace PrenominaApi.Services
                 ApplyRehired = setApplyNewContract.GenerateContract,
                 ContractDays = setApplyNewContract.ContractDays
             };
+        }
+
+        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
+        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
+        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        {
+            if (tenant == "-999" || tenant == "all")
+            {
+                return new HashSet<int>();
+            }
+
+            var target = TenantCode.Normalize(tenant);
+            return _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId)
+                .Select(k => new { k.Codigo, k.Center })
+                .ToList()
+                .Where(r => TenantCode.Normalize(r.Center) == target)
+                .Select(r => (int)r.Codigo)
+                .ToHashSet();
         }
     }
 }

@@ -4,6 +4,7 @@ using PrenominaApi.Data;
 using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
+using PrenominaApi.Services.Utilities;
 using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
@@ -153,6 +154,22 @@ namespace PrenominaApi.Services.Prenomina
 
             var lowerSearch = search?.ToLower();
 
+            // Pre-resolver los códigos del centro seleccionado normalizando ceros a la izquierda
+            // ('04' del empleado vs '4' del header), ya que la comparación directa en SQL fallaría.
+            // Se deja vacío cuando no aplica (TODOS o modo supervisor) para no romper la traducción.
+            var allowedCenterCodes = new HashSet<int>();
+            if (tenant != "-999" && _globalPropertyService.TypeTenant == TypeTenant.Department)
+            {
+                var target = TenantCode.Normalize(tenant);
+                var centerRows = await _keyRepository.GetContextEntity().AsNoTracking()
+                    .Where(k => k.Company == companyId && k.TypeNom == typeNomina)
+                    .Select(k => new { k.Codigo, k.Center })
+                    .ToListAsync();
+                allowedCenterCodes = centerRows.Where(r => TenantCode.Normalize(r.Center) == target)
+                    .Select(r => (int)r.Codigo)
+                    .ToHashSet();
+            }
+
             // Obtener empleados
             var employees = await _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
@@ -161,7 +178,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(tenant))
                     ) &&
                     (

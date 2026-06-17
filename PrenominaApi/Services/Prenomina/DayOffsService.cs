@@ -168,9 +168,10 @@ namespace PrenominaApi.Services.Prenomina
 
             if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
+                var allowedCenterCodes = ResolveCenterCodes(getWorkedDayOff.CompanyId, getWorkedDayOff.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == getWorkedDayOff.CompanyId &&
-                    (getWorkedDayOff.Tenant != "-999" ? item.Center.Trim() == getWorkedDayOff.Tenant : true)
+                    (getWorkedDayOff.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
                 );
             }
             else
@@ -312,9 +313,10 @@ namespace PrenominaApi.Services.Prenomina
 
             if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
+                var allowedCenterCodes = ResolveCenterCodes(getWorkedSunday.CompanyId, getWorkedSunday.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == getWorkedSunday.CompanyId &&
-                    getWorkedSunday.Tenant != "-999" ? item.Center.Trim() == getWorkedSunday.Tenant : true
+                    (getWorkedSunday.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
                 );
             }
             else
@@ -540,10 +542,11 @@ namespace PrenominaApi.Services.Prenomina
 
             if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
+                var allowedCenterCodes = ResolveCenterCodes(filterEmployee.CompanyId, filterEmployee.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == filterEmployee.CompanyId && 
-                    item.TypeNom == filterEmployee.TypeNom && 
-                    (filterEmployee.Tenant != "-999" ? item.Center.Trim() == filterEmployee.Tenant : true)
+                    item => item.Company == filterEmployee.CompanyId &&
+                    item.TypeNom == filterEmployee.TypeNom &&
+                    (filterEmployee.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
                 ).ToList();
             }
             else
@@ -950,7 +953,25 @@ namespace PrenominaApi.Services.Prenomina
 
             if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                keys = _keyRepository.GetByFilter(k => k.Company == syncIncapacity.CompanyId && k.TypeNom == syncIncapacity.TypeNom && syncIncapacity.TenantId == "-999" ? tenants.Contains(k.Center.Trim()) : k.Center.Trim() == syncIncapacity.TenantId.Trim()).ToList();
+                // El centro puede venir con ceros a la izquierda ('04') vs el tenant como int ('4');
+                // se normalizan ambos lados. Se resuelven en memoria los códigos permitidos y se
+                // filtran en SQL vía IN (EF no traduce la normalización). Cuando es "-999" se aceptan
+                // los centros del usuario; si no, el centro específico.
+                var normalizedTenants = tenants.Select(TenantCode.Normalize).ToHashSet();
+                var target = TenantCode.Normalize(syncIncapacity.TenantId);
+                var allowedCenterCodes = _keyRepository.GetContextEntity().AsNoTracking()
+                    .Where(k => k.Company == syncIncapacity.CompanyId && k.TypeNom == syncIncapacity.TypeNom)
+                    .Select(k => new { k.Codigo, k.Center })
+                    .ToList()
+                    .Where(r => syncIncapacity.TenantId == "-999"
+                        ? normalizedTenants.Contains(TenantCode.Normalize(r.Center))
+                        : TenantCode.Normalize(r.Center) == target)
+                    .Select(r => (int)r.Codigo)
+                    .ToHashSet();
+
+                keys = _keyRepository.GetByFilter(k => k.Company == syncIncapacity.CompanyId
+                    && k.TypeNom == syncIncapacity.TypeNom
+                    && allowedCenterCodes.Contains((int)k.Codigo)).ToList();
             }
             else
             {
@@ -1108,6 +1129,25 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             return worksheet;
+        }
+
+        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
+        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
+        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        {
+            if (tenant == "-999" || tenant == "all")
+            {
+                return new HashSet<int>();
+            }
+
+            var target = TenantCode.Normalize(tenant);
+            return _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId)
+                .Select(k => new { k.Codigo, k.Center })
+                .ToList()
+                .Where(r => TenantCode.Normalize(r.Center) == target)
+                .Select(r => (int)r.Codigo)
+                .ToHashSet();
         }
     }
 }

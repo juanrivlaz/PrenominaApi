@@ -10,6 +10,7 @@ using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
+using PrenominaApi.Services.Utilities;
 using System.Data;
 using System.Text.Json;
 
@@ -68,6 +69,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -75,7 +77,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -249,6 +251,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -256,7 +259,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -382,6 +385,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -389,7 +393,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -517,6 +521,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -524,7 +529,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -645,6 +650,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -652,7 +658,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -741,6 +747,7 @@ namespace PrenominaApi.Services.Prenomina
                 ClosingDate = periodDates.ClosingDate;
             }
 
+            var allowedCenterCodes = ResolveAllowedCenterCodes(getReport);
             var employees = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k =>
                     k.Company == getReport.Company &&
@@ -748,7 +755,7 @@ namespace PrenominaApi.Services.Prenomina
                     (
                         getReport.Tenant == "-999" ||
                         (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            k.Center == getReport.Tenant :
+                            allowedCenterCodes.Contains((int)k.Codigo) :
                             k.Supervisor == Convert.ToDecimal(getReport.Tenant)
                         )
                     ) &&
@@ -887,6 +894,26 @@ namespace PrenominaApi.Services.Prenomina
             }
 
             return result.OrderByDescending(r => r.ConsecutiveDays).ThenBy(r => r.Code);
+        }
+
+        // Resuelve los códigos de empleado del centro seleccionado, normalizando ceros a la
+        // izquierda ('04' del empleado vs '4' del header). Devuelve vacío cuando no aplica
+        // (TODOS o modo supervisor); en esos casos el filtro por centro no se usa.
+        private HashSet<int> ResolveAllowedCenterCodes(GetReports getReport)
+        {
+            if (getReport.Tenant == "-999" || _globalPropertyService.TypeTenant != TypeTenant.Department)
+            {
+                return new HashSet<int>();
+            }
+
+            var target = TenantCode.Normalize(getReport.Tenant);
+            return _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == getReport.Company && k.TypeNom == getReport.TypeNomina)
+                .Select(k => new { k.Codigo, k.Center })
+                .ToList()
+                .Where(r => TenantCode.Normalize(r.Center) == target)
+                .Select(r => (int)r.Codigo)
+                .ToHashSet();
         }
     }
 }

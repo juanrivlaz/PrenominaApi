@@ -4,6 +4,7 @@ using PrenominaApi.Models;
 using PrenominaApi.Models.Dto;
 using PrenominaApi.Models.Dto.Input;
 using PrenominaApi.Models.Dto.Input.Attendance;
+using PrenominaApi.Services.Utilities;
 using PrenominaApi.Models.Dto.Output.Attendance;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
@@ -338,17 +339,23 @@ namespace PrenominaApi.Services.Prenomina
                 var keysQuery = _keyRepository.GetContextEntity()
                     .Where(k => k.Company == input.CompanyId && codes.Contains((int)k.Codigo));
 
+                HashSet<int> allowedCodes;
                 if (_globalPropertyService.TypeTenant == TypeTenant.Department)
                 {
-                    keysQuery = keysQuery.Where(k => k.Center == tenant);
+                    // El centro puede venir con ceros a la izquierda ('04') y el tenant como int
+                    // ('4'); se normalizan ambos en memoria para que matcheen.
+                    var target = TenantCode.Normalize(tenant);
+                    allowedCodes = keysQuery.Select(k => new { k.Codigo, k.Center }).ToList()
+                        .Where(r => TenantCode.Normalize(r.Center) == target)
+                        .Select(r => (int)r.Codigo)
+                        .ToHashSet();
                 }
                 else
                 {
                     var supervisorId = Convert.ToDecimal(tenant);
-                    keysQuery = keysQuery.Where(k => k.Supervisor == supervisorId);
+                    allowedCodes = keysQuery.Where(k => k.Supervisor == supervisorId)
+                        .Select(k => (int)k.Codigo).ToHashSet();
                 }
-
-                var allowedCodes = keysQuery.Select(k => (int)k.Codigo).ToHashSet();
                 pendingIncidents = pendingIncidents.Where(i => allowedCodes.Contains(i.EmployeeCode)).ToList();
 
                 if (pendingIncidents.Count == 0)

@@ -10,6 +10,7 @@ using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
+using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Prenomina;
 using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Utilities.AdditionalPayPdf;
@@ -96,9 +97,16 @@ namespace PrenominaApi.Services
             // Aplicar filtro de tenant
             if (filter.Tenant != "-999")
             {
-                keysQuery = _globalPropertyService.TypeTenant == TypeTenant.Department
-                    ? keysQuery.Where(item => item.Center.Trim() == filter.Tenant)
-                    : keysQuery.Where(item => item.Supervisor == Convert.ToDecimal(filter.Tenant));
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    var allowedCenterCodes = ResolveCenterCodes(filter.Company, filter.Tenant);
+                    keysQuery = keysQuery.Where(item => allowedCenterCodes.Contains((int)item.Codigo));
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(filter.Tenant);
+                    keysQuery = keysQuery.Where(item => item.Supervisor == supervisorId);
+                }
             }
 
             // Proyectar solo lo necesario - evita cargar entidades completas
@@ -446,9 +454,16 @@ namespace PrenominaApi.Services
 
             if (getAdditionalPay.Tenant != "-999")
             {
-                queryKey = _globalPropertyService.TypeTenant == TypeTenant.Department
-                    ? queryKey.Where(k => k.Center.Trim() == getAdditionalPay.Tenant)
-                    : queryKey.Where(k => k.Supervisor == Convert.ToDecimal(getAdditionalPay.Tenant));
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    var allowedCenterCodes = ResolveCenterCodes(getAdditionalPay.Company, getAdditionalPay.Tenant);
+                    queryKey = queryKey.Where(k => allowedCenterCodes.Contains((int)k.Codigo));
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(getAdditionalPay.Tenant);
+                    queryKey = queryKey.Where(k => k.Supervisor == supervisorId);
+                }
             }
 
             var keysData = queryKey
@@ -706,9 +721,16 @@ namespace PrenominaApi.Services
 
             if (downloadAttendance.Tenant != "-999")
             {
-                keyQuery = _globalPropertyService.TypeTenant == TypeTenant.Department
-                    ? keyQuery.Where(k => k.Center.Trim() == downloadAttendance.Tenant)
-                    : keyQuery.Where(k => k.Supervisor == Convert.ToDecimal(downloadAttendance.Tenant));
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    var allowedCenterCodes = ResolveCenterCodes(downloadAttendance.Company, downloadAttendance.Tenant);
+                    keyQuery = keyQuery.Where(k => allowedCenterCodes.Contains((int)k.Codigo));
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(downloadAttendance.Tenant);
+                    keyQuery = keyQuery.Where(k => k.Supervisor == supervisorId);
+                }
             }
 
             var keysData = keyQuery
@@ -949,6 +971,25 @@ namespace PrenominaApi.Services
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
             return stream.ToArray();
+        }
+
+        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
+        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
+        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        {
+            if (tenant == "-999" || tenant == "all")
+            {
+                return new HashSet<int>();
+            }
+
+            var target = TenantCode.Normalize(tenant);
+            return _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId)
+                .Select(k => new { k.Codigo, k.Center })
+                .ToList()
+                .Where(r => TenantCode.Normalize(r.Center) == target)
+                .Select(r => (int)r.Codigo)
+                .ToHashSet();
         }
     }
 }

@@ -8,6 +8,7 @@ using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Repositories;
 using PrenominaApi.Repositories.Prenomina;
+using PrenominaApi.Services.Utilities;
 using PrenominaApi.Services.Utilities.PermissionPdf;
 
 namespace PrenominaApi.Services.Prenomina
@@ -90,9 +91,19 @@ namespace PrenominaApi.Services.Prenomina
             var tenant = _globalPropertyService.Tenant;
             if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
             {
-                keys = _globalPropertyService.TypeTenant == TypeTenant.Department
-                    ? keys.Where(k => k.Center == tenant).ToList()
-                    : keys.Where(k => k.Supervisor == Convert.ToDecimal(tenant)).ToList();
+                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                {
+                    // El centro del empleado puede venir con ceros a la izquierda ('04') mientras
+                    // que el tenant del header llega como int ('4'); se normalizan ambos lados
+                    // (igual que ApprovalResolver al resolver candidatos) para que matcheen.
+                    var target = TenantCode.Normalize(tenant);
+                    keys = keys.Where(k => TenantCode.Normalize(k.Center) == target).ToList();
+                }
+                else
+                {
+                    var supervisorId = Convert.ToDecimal(tenant);
+                    keys = keys.Where(k => k.Supervisor == supervisorId).ToList();
+                }
 
                 var allowedCodes = keys.Select(k => (int)k.Codigo).ToHashSet();
                 requests = requests.Where(r => allowedCodes.Contains(r.EmployeeCode)).ToList();
