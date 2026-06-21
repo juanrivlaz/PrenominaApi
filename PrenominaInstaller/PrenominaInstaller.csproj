@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>PrenominaInstaller</RootNamespace>
+    <AssemblyName>PrenominaInstaller</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Requiere privilegios de administrador para crear servicios / variables de máquina -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <Version>1.0.0</Version>
+    <Product>Instalador Prenomina API</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+  </ItemGroup>
+
+  <!-- Payloads que se empaquetan junto al instalador:
+       api\     = publish self-contained del API
+       web\     = publish self-contained del servidor estático (PrenominaWeb)
+       webroot\ = build de Angular (dist/prenomina/browser) -->
+  <ItemGroup>
+    <Content Include="api\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>api\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="web\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>web\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="webroot\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>webroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>

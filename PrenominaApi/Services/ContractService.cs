@@ -55,14 +55,17 @@ namespace PrenominaApi.Services
             // como int ('4'); se normalizan ambos lados. Para el filtro de tenant (en SQL) se
             // resuelven los códigos permitidos y se filtran con IN; los centros del usuario se
             // comparan normalizados en memoria.
+            // null = sin restricción por centro/supervisor (sudo + TODOS); para no-sudo + TODOS se
+            // limita a los centros/supervisores asignados del usuario.
             var allowedCenterCodes = ResolveCenterCodes(contractsInput.CompanyId, contractsInput.Tenant);
+            var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, contractsInput.Tenant);
             var normalizedUserCenters = centers.Select(TenantCode.Normalize).ToHashSet();
 
             var keys = _keyRepository.GetContextEntity().Include(k => k.CenterItem).Where(
                 item => item.Company == contractsInput.CompanyId &&
-                contractsInput.Tenant != "all" ?
-                (contractsInput.TypeTenant == TypeTenant.Department ? allowedCenterCodes.Contains((int)item.Codigo) : item.Supervisor == int.Parse(contractsInput.Tenant))
-                : true
+                (contractsInput.TypeTenant == TypeTenant.Department
+                    ? (allowedCenterCodes == null ? true : allowedCenterCodes.Contains((int)item.Codigo))
+                    : (allowedSupervisors == null ? true : allowedSupervisors.Contains(item.Supervisor)))
             ).AsEnumerable().Where(item => userDetails!.role!.Code == RoleCode.Sudo ? true :
                 (contractsInput.TypeTenant == TypeTenant.Department ? (centers.Any() && normalizedUserCenters.Contains(TenantCode.Normalize(item.Center))) : (supervisors.Any() && supervisors.Contains(item.Supervisor)))).ToDictionary(k => (k.Codigo, k.Company));
 
@@ -242,23 +245,18 @@ namespace PrenominaApi.Services
             };
         }
 
-        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
-        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
-        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        // Códigos de empleado permitidos según el centro seleccionado, normalizando ceros a la
+        // izquierda ('04' del empleado vs '4' del header). null = sin restricción por centro
+        // (sudo + TODOS); para no-sudo + TODOS se limita a sus centros asignados.
+        private HashSet<int>? ResolveCenterCodes(decimal companyId, string tenant)
         {
-            if (tenant == "-999" || tenant == "all")
-            {
-                return new HashSet<int>();
-            }
-
-            var target = TenantCode.Normalize(tenant);
-            return _keyRepository.GetContextEntity().AsNoTracking()
+            var rows = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k => k.Company == companyId)
                 .Select(k => new { k.Codigo, k.Center })
-                .ToList()
-                .Where(r => TenantCode.Normalize(r.Center) == target)
-                .Select(r => (int)r.Codigo)
-                .ToHashSet();
+                .ToList();
+
+            return CenterScope.ResolveAllowedCenterCodes(
+                _globalPropertyService, rows, r => r.Codigo, r => r.Center, tenant);
         }
     }
 }

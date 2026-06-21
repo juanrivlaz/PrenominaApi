@@ -31,6 +31,17 @@ using PrenominaApi.Services.Utilities.ReportPdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Permitir ejecución como Servicio de Windows (hosting Kestrel autónomo, sin IIS).
+// Si no se ejecuta como servicio (consola/IIS) esta llamada es inofensiva.
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "Prenomina API";
+});
+
+// Como servicio de Windows el directorio de trabajo es System32. Forzar el del
+// ejecutable para que rutas relativas (logs, archivos temporales, PDFs) funcionen.
+Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+
 // Establecer cultura global a "es-MX"
 var cultureInfo = new CultureInfo("es-MX");
 CultureInfo.DefaultThreadCurrentCulture = cultureInfo;

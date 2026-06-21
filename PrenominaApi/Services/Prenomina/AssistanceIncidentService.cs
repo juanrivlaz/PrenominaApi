@@ -331,31 +331,38 @@ namespace PrenominaApi.Services.Prenomina
                 return Enumerable.Empty<PendingIncidenceApprovalOutput>();
             }
 
-            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
-            var tenant = _globalPropertyService.Tenant;
-            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
-            {
-                var codes = pendingIncidents.Select(i => i.EmployeeCode).Distinct().ToList();
-                var keysQuery = _keyRepository.GetContextEntity()
-                    .Where(k => k.Company == input.CompanyId && codes.Contains((int)k.Codigo));
+            // Filtrar por el centro/supervisor. Para no-sudo + TODOS se limita a los centros/
+            // supervisores asignados del usuario; sudo + TODOS no aplica restricción (allowedCodes
+            // queda en null). El centro puede venir con ceros a la izquierda ('04') vs el tenant
+            // como int ('4'); se normalizan ambos en memoria.
+            var codes = pendingIncidents.Select(i => i.EmployeeCode).Distinct().ToList();
+            var keysQuery = _keyRepository.GetContextEntity()
+                .Where(k => k.Company == input.CompanyId && codes.Contains((int)k.Codigo));
 
-                HashSet<int> allowedCodes;
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            HashSet<int>? allowedCodes = null;
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            {
+                var centerTargets = CenterScope.NormalizedCenterTargets(_globalPropertyService);
+                if (centerTargets != null)
                 {
-                    // El centro puede venir con ceros a la izquierda ('04') y el tenant como int
-                    // ('4'); se normalizan ambos en memoria para que matcheen.
-                    var target = TenantCode.Normalize(tenant);
                     allowedCodes = keysQuery.Select(k => new { k.Codigo, k.Center }).ToList()
-                        .Where(r => TenantCode.Normalize(r.Center) == target)
+                        .Where(r => centerTargets.Contains(TenantCode.Normalize(r.Center)))
                         .Select(r => (int)r.Codigo)
                         .ToHashSet();
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService);
+                if (allowedSupervisors != null)
                 {
-                    var supervisorId = Convert.ToDecimal(tenant);
-                    allowedCodes = keysQuery.Where(k => k.Supervisor == supervisorId)
+                    allowedCodes = keysQuery.Where(k => allowedSupervisors.Contains(k.Supervisor))
                         .Select(k => (int)k.Codigo).ToHashSet();
                 }
+            }
+
+            if (allowedCodes != null)
+            {
                 pendingIncidents = pendingIncidents.Where(i => allowedCodes.Contains(i.EmployeeCode)).ToList();
 
                 if (pendingIncidents.Count == 0)

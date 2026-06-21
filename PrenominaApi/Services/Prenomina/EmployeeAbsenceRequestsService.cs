@@ -87,24 +87,32 @@ namespace PrenominaApi.Services.Prenomina
 
             var keys = keyEmployee.Where(k => k.Company == companyId && employeeCodes.Contains((int)k.Codigo)).ToList();
 
-            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
-            var tenant = _globalPropertyService.Tenant;
-            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
+            // Filtrar por el centro/supervisor. Para no-sudo + TODOS se limita a los centros/
+            // supervisores asignados del usuario; sudo + TODOS no aplica restricción.
+            // El centro del empleado puede venir con ceros a la izquierda ('04') vs el tenant
+            // como int ('4'); se normalizan ambos lados para que matcheen.
+            bool restricted;
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                var centerTargets = CenterScope.NormalizedCenterTargets(_globalPropertyService);
+                restricted = centerTargets != null;
+                if (restricted)
                 {
-                    // El centro del empleado puede venir con ceros a la izquierda ('04') mientras
-                    // que el tenant del header llega como int ('4'); se normalizan ambos lados
-                    // (igual que ApprovalResolver al resolver candidatos) para que matcheen.
-                    var target = TenantCode.Normalize(tenant);
-                    keys = keys.Where(k => TenantCode.Normalize(k.Center) == target).ToList();
+                    keys = keys.Where(k => centerTargets!.Contains(TenantCode.Normalize(k.Center))).ToList();
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService);
+                restricted = allowedSupervisors != null;
+                if (restricted)
                 {
-                    var supervisorId = Convert.ToDecimal(tenant);
-                    keys = keys.Where(k => k.Supervisor == supervisorId).ToList();
+                    keys = keys.Where(k => allowedSupervisors!.Contains(k.Supervisor)).ToList();
                 }
+            }
 
+            if (restricted)
+            {
                 var allowedCodes = keys.Select(k => (int)k.Codigo).ToHashSet();
                 requests = requests.Where(r => allowedCodes.Contains(r.EmployeeCode)).ToList();
                 employeeCodes = requests.Select(r => r.EmployeeCode).Distinct().ToList();

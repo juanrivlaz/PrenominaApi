@@ -94,18 +94,21 @@ namespace PrenominaApi.Services
                 .AsNoTracking()
                 .Where(item => item.Company == filter.Company && item.TypeNom == filter.TypeNomina);
 
-            // Aplicar filtro de tenant
-            if (filter.Tenant != "-999")
+            // Aplicar filtro de tenant (null = sin restricción: sudo + TODOS)
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                var allowedCenterCodes = ResolveCenterCodes(filter.Company, filter.Tenant);
+                if (allowedCenterCodes != null)
                 {
-                    var allowedCenterCodes = ResolveCenterCodes(filter.Company, filter.Tenant);
                     keysQuery = keysQuery.Where(item => allowedCenterCodes.Contains((int)item.Codigo));
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, filter.Tenant);
+                if (allowedSupervisors != null)
                 {
-                    var supervisorId = Convert.ToDecimal(filter.Tenant);
-                    keysQuery = keysQuery.Where(item => item.Supervisor == supervisorId);
+                    keysQuery = keysQuery.Where(item => allowedSupervisors.Contains(item.Supervisor));
                 }
             }
 
@@ -452,17 +455,20 @@ namespace PrenominaApi.Services
                 .AsNoTracking()
                 .Where(k => k.Company == getAdditionalPay.Company && k.TypeNom == getAdditionalPay.TypeNomina);
 
-            if (getAdditionalPay.Tenant != "-999")
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                var allowedCenterCodes = ResolveCenterCodes(getAdditionalPay.Company, getAdditionalPay.Tenant);
+                if (allowedCenterCodes != null)
                 {
-                    var allowedCenterCodes = ResolveCenterCodes(getAdditionalPay.Company, getAdditionalPay.Tenant);
                     queryKey = queryKey.Where(k => allowedCenterCodes.Contains((int)k.Codigo));
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, getAdditionalPay.Tenant);
+                if (allowedSupervisors != null)
                 {
-                    var supervisorId = Convert.ToDecimal(getAdditionalPay.Tenant);
-                    queryKey = queryKey.Where(k => k.Supervisor == supervisorId);
+                    queryKey = queryKey.Where(k => allowedSupervisors.Contains(k.Supervisor));
                 }
             }
 
@@ -719,17 +725,20 @@ namespace PrenominaApi.Services
 
             var company = _companiesRepository.GetById(downloadAttendance.Company);
 
-            if (downloadAttendance.Tenant != "-999")
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+                var allowedCenterCodes = ResolveCenterCodes(downloadAttendance.Company, downloadAttendance.Tenant);
+                if (allowedCenterCodes != null)
                 {
-                    var allowedCenterCodes = ResolveCenterCodes(downloadAttendance.Company, downloadAttendance.Tenant);
                     keyQuery = keyQuery.Where(k => allowedCenterCodes.Contains((int)k.Codigo));
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, downloadAttendance.Tenant);
+                if (allowedSupervisors != null)
                 {
-                    var supervisorId = Convert.ToDecimal(downloadAttendance.Tenant);
-                    keyQuery = keyQuery.Where(k => k.Supervisor == supervisorId);
+                    keyQuery = keyQuery.Where(k => allowedSupervisors.Contains(k.Supervisor));
                 }
             }
 
@@ -973,23 +982,18 @@ namespace PrenominaApi.Services
             return stream.ToArray();
         }
 
-        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
-        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
-        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        // Códigos de empleado permitidos según el centro seleccionado, normalizando ceros a la
+        // izquierda ('04' del empleado vs '4' del header). null = sin restricción por centro
+        // (sudo + TODOS); para no-sudo + TODOS se limita a sus centros asignados.
+        private HashSet<int>? ResolveCenterCodes(decimal companyId, string tenant)
         {
-            if (tenant == "-999" || tenant == "all")
-            {
-                return new HashSet<int>();
-            }
-
-            var target = TenantCode.Normalize(tenant);
-            return _keyRepository.GetContextEntity().AsNoTracking()
+            var rows = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k => k.Company == companyId)
                 .Select(k => new { k.Codigo, k.Center })
-                .ToList()
-                .Where(r => TenantCode.Normalize(r.Center) == target)
-                .Select(r => (int)r.Codigo)
-                .ToHashSet();
+                .ToList();
+
+            return CenterScope.ResolveAllowedCenterCodes(
+                _globalPropertyService, rows, r => r.Codigo, r => r.Center, tenant);
         }
     }
 }

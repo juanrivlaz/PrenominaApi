@@ -58,7 +58,11 @@ namespace PrenominaApi.Middlewares
                             var existInCenters = userDetails.Centers?.ToList().Exists(c => !string.IsNullOrWhiteSpace(c.Id) && int.TryParse(c.Id.Trim(), out var cId) && int.TryParse(tenantSelected, out var tId) && cId == tId) ?? false;
                             var existInSupervisor = userDetails.Supervisors?.ToList().Exists(s => s.Id == Convert.ToDecimal(tenantSelected)) ?? false;
 
-                            if (tenantSelected != "all" && !existInSupervisor && !existInCenters && !isPathMe)
+                            // "all"/"-999" = TODOS: permitido para no-sudo; el filtrado se limita
+                            // a sus centros/supervisores asignados en la capa de servicio.
+                            var isAllTenants = tenantSelected == "all" || tenantSelected == "-999";
+
+                            if (!isAllTenants && !existInSupervisor && !existInCenters && !isPathMe)
                             {
                                 throw new BadHttpRequestException("No tienes acceso a este centro o supervisor");
                             }

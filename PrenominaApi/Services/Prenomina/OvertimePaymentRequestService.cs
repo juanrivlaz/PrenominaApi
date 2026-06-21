@@ -17,8 +17,9 @@ namespace PrenominaApi.Services.Prenomina
 {
     /// <summary>
     /// Aprobación/rechazo de las papeletas de pago de horas extras. Reutiliza la progresión
-    /// de cadena (ApprovalFlowService). Al rechazar, reintegra las horas: cancela los movimientos
-    /// de pago directo vinculados, de modo que los días vuelven a "pendientes".
+    /// de cadena (ApprovalFlowService). Al rechazar, reintegra las horas al balance acumulado:
+    /// cancela los movimientos de pago directo vinculados y acumula esos minutos, de modo que las
+    /// horas vuelven al balance disponible (estado previo a la solicitud).
     /// </summary>
     public class OvertimePaymentRequestService
     {
@@ -189,31 +190,38 @@ namespace PrenominaApi.Services.Prenomina
                 return new List<OvertimePaymentRequestOutput>();
             }
 
-            // Filtrar por el centro/supervisor seleccionado (a menos que sea "TODOS" = -999).
-            var tenant = _globalPropertyService.Tenant;
-            if (!string.IsNullOrEmpty(tenant) && tenant != "-999" && tenant != "all")
-            {
-                var codes = requests.Select(r => r.EmployeeCode).Distinct().ToList();
-                var keysQuery = _keyRepository.GetContextEntity().AsNoTracking()
-                    .Where(k => k.Company == companyId && codes.Contains((int)k.Codigo));
+            // Filtrar por el centro/supervisor. Para no-sudo + TODOS se limita a los centros/
+            // supervisores asignados del usuario; sudo + TODOS no aplica restricción (allowedCodes
+            // queda en null). El centro puede venir con ceros a la izquierda ('04') vs el tenant
+            // como int ('4'); se normalizan ambos en memoria.
+            var codes = requests.Select(r => r.EmployeeCode).Distinct().ToList();
+            var keysQuery = _keyRepository.GetContextEntity().AsNoTracking()
+                .Where(k => k.Company == companyId && codes.Contains((int)k.Codigo));
 
-                HashSet<int> allowedCodes;
-                if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            HashSet<int>? allowedCodes = null;
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
+            {
+                var centerTargets = CenterScope.NormalizedCenterTargets(_globalPropertyService);
+                if (centerTargets != null)
                 {
-                    // El centro puede venir con ceros a la izquierda ('04') y el tenant como int
-                    // ('4'); se normalizan ambos en memoria para que matcheen.
-                    var target = TenantCode.Normalize(tenant);
                     var rows = await keysQuery.Select(k => new { k.Codigo, k.Center }).ToListAsync();
-                    allowedCodes = rows.Where(r => TenantCode.Normalize(r.Center) == target)
+                    allowedCodes = rows.Where(r => centerTargets.Contains(TenantCode.Normalize(r.Center)))
                         .Select(r => (int)r.Codigo)
                         .ToHashSet();
                 }
-                else
+            }
+            else
+            {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService);
+                if (allowedSupervisors != null)
                 {
-                    var supervisorId = Convert.ToDecimal(tenant);
-                    allowedCodes = (await keysQuery.Where(k => k.Supervisor == supervisorId)
+                    allowedCodes = (await keysQuery.Where(k => allowedSupervisors.Contains(k.Supervisor))
                         .Select(k => (int)k.Codigo).ToListAsync()).ToHashSet();
                 }
+            }
+
+            if (allowedCodes != null)
+            {
                 requests = requests.Where(r => allowedCodes.Contains(r.EmployeeCode)).ToList();
 
                 if (requests.Count == 0)
@@ -276,6 +284,17 @@ namespace PrenominaApi.Services.Prenomina
 
             var names = await GetEmployeeNames(new List<int> { request.EmployeeCode }, request.CompanyId);
 
+            // Fechas de donde se toman las horas extras: fechas origen de los movimientos de
+            // pago directo vinculados a la papeleta, distintas y ordenadas.
+            var overtimeDates = await _context.overtimeMovementLogs
+                .AsNoTracking()
+                .Where(m => m.OvertimePaymentRequestId == request.Id
+                    && m.MovementType == OvertimeMovementType.DirectPayment)
+                .Select(m => m.SourceDate)
+                .Distinct()
+                .OrderBy(d => d)
+                .ToListAsync();
+
             var chain = await _context.absenceRequestApprovals
                 .AsNoTracking()
                 .Where(a => a.RequestType == ApprovalRequestType.OvertimePayment && a.AbsenceRequestId == request.Id)
@@ -324,6 +343,7 @@ namespace PrenominaApi.Services.Prenomina
                 Status = request.Status,
                 CreatedAt = request.CreatedAt,
                 Notes = request.Notes,
+                OvertimeDates = overtimeDates,
                 ApprovalChain = approvalChain,
             };
         }
@@ -376,9 +396,10 @@ namespace PrenominaApi.Services.Prenomina
         }
 
         /// <summary>
-        /// Reintegra las horas pagadas de una papeleta rechazada: por cada movimiento de pago
-        /// directo no cancelado, crea una cancelación y revierte los minutos pagados. El resumen
-        /// excluye los movimientos cancelados, así que los días vuelven a "pendientes".
+        /// Reintegra al balance las horas pagadas de una papeleta rechazada. Por cada movimiento de
+        /// pago directo no cancelado: (1) lo cancela para revertir los minutos pagados (deja de contar
+        /// como "Pagado") y (2) crea una acumulación por los mismos minutos/fecha, devolviendo las horas
+        /// al balance acumulado (estado previo a la solicitud), en lugar de dejar el día como "pendiente".
         /// </summary>
         private async Task ReintegrateHours(OvertimePaymentRequest request, string? reason)
         {
@@ -418,7 +439,9 @@ namespace PrenominaApi.Services.Prenomina
                     continue;
                 }
 
-                accumulation.PaidMinutes -= movement.Minutes; // revertir lo pagado
+                // 1) Cancelar el pago directo: revierte los minutos pagados y, al quedar cancelado,
+                //    el resumen deja de contarlo como "Pagado".
+                accumulation.PaidMinutes -= movement.Minutes;
                 accumulation.UpdatedAt = now;
 
                 _context.overtimeMovementLogs.Add(new OvertimeMovementLog
@@ -431,7 +454,31 @@ namespace PrenominaApi.Services.Prenomina
                     BalanceAfter = accumulation.AccumulatedMinutes,
                     SourceDate = movement.SourceDate,
                     OvertimePaymentRequestId = request.Id,
-                    Notes = $"Reintegro por rechazo de pago de horas extras: {reason}",
+                    Notes = $"Reverso de pago por rechazo de papeleta: {reason}",
+                    ByUserId = byUser,
+                    RelatedMovementId = movement.Id,
+                    CreatedAt = now,
+                });
+
+                // 2) Devolver las horas al balance acumulado (como estaban antes de tomarlas para la
+                //    solicitud): se crea una acumulación por los mismos minutos/fecha, de modo que el
+                //    día queda como "Acumulado" y suma al balance disponible (no como "pendiente").
+                accumulation.AccumulatedMinutes += movement.Minutes;
+                accumulation.UpdatedAt = now;
+
+                _context.overtimeMovementLogs.Add(new OvertimeMovementLog
+                {
+                    OvertimeAccumulationId = accumulation.Id,
+                    EmployeeCode = movement.EmployeeCode,
+                    CompanyId = movement.CompanyId,
+                    MovementType = OvertimeMovementType.Accumulation,
+                    Minutes = movement.Minutes,
+                    BalanceAfter = accumulation.AccumulatedMinutes,
+                    SourceDate = movement.SourceDate,
+                    OriginalCheckIn = movement.OriginalCheckIn,
+                    OriginalCheckOut = movement.OriginalCheckOut,
+                    OvertimePaymentRequestId = request.Id,
+                    Notes = $"Reintegro a balance por rechazo de papeleta: {reason}",
                     ByUserId = byUser,
                     RelatedMovementId = movement.Id,
                     CreatedAt = now,

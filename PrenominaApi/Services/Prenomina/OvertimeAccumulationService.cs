@@ -156,19 +156,19 @@ namespace PrenominaApi.Services.Prenomina
 
             // Pre-resolver los códigos del centro seleccionado normalizando ceros a la izquierda
             // ('04' del empleado vs '4' del header), ya que la comparación directa en SQL fallaría.
-            // Se deja vacío cuando no aplica (TODOS o modo supervisor) para no romper la traducción.
-            var allowedCenterCodes = new HashSet<int>();
-            if (tenant != "-999" && _globalPropertyService.TypeTenant == TypeTenant.Department)
+            // null = sin restricción por centro (sudo + TODOS); para no-sudo + TODOS se limita a
+            // sus centros asignados.
+            HashSet<int>? allowedCenterCodes = null;
+            if (_globalPropertyService.TypeTenant == TypeTenant.Department)
             {
-                var target = TenantCode.Normalize(tenant);
                 var centerRows = await _keyRepository.GetContextEntity().AsNoTracking()
                     .Where(k => k.Company == companyId && k.TypeNom == typeNomina)
                     .Select(k => new { k.Codigo, k.Center })
                     .ToListAsync();
-                allowedCenterCodes = centerRows.Where(r => TenantCode.Normalize(r.Center) == target)
-                    .Select(r => (int)r.Codigo)
-                    .ToHashSet();
+                allowedCenterCodes = CenterScope.ResolveAllowedCenterCodes(
+                    _globalPropertyService, centerRows, r => r.Codigo, r => r.Center, tenant);
             }
+            var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, tenant);
 
             // Obtener empleados
             var employees = await _keyRepository.GetContextEntity().AsNoTracking()
@@ -176,10 +176,9 @@ namespace PrenominaApi.Services.Prenomina
                     k.Company == companyId &&
                     k.TypeNom == typeNomina &&
                     (
-                        tenant == "-999" ||
-                        (_globalPropertyService.TypeTenant == TypeTenant.Department ?
-                            allowedCenterCodes.Contains((int)k.Codigo) :
-                            k.Supervisor == Convert.ToDecimal(tenant))
+                        _globalPropertyService.TypeTenant == TypeTenant.Department ?
+                            (allowedCenterCodes == null ? true : allowedCenterCodes.Contains((int)k.Codigo)) :
+                            (allowedSupervisors == null ? true : allowedSupervisors.Contains(k.Supervisor))
                     ) &&
                     (
                         string.IsNullOrEmpty(lowerSearch) ||
@@ -1033,8 +1032,8 @@ namespace PrenominaApi.Services.Prenomina
 
         /// <summary>
         /// Cancela una papeleta de pago pendiente y revierte TODOS sus pagos directos: cada
-        /// movimiento de pago vinculado se cancela (se reintegran los minutos pagados, los días
-        /// vuelven a "pendientes"), se elimina (soft-delete) la papeleta y su cadena de firmas.
+        /// movimiento de pago vinculado se cancela y sus minutos se reintegran al balance acumulado
+        /// (estado previo a la solicitud), se elimina (soft-delete) la papeleta y su cadena de firmas.
         /// </summary>
         private async Task<OvertimeOperationResult> CancelPaymentRequestCascade(
             OvertimePaymentRequest request, string? reason, int companyId, string? userId)
@@ -1071,7 +1070,8 @@ namespace PrenominaApi.Services.Prenomina
                     continue;
                 }
 
-                accumulation.PaidMinutes -= movement.Minutes; // revertir lo pagado
+                // 1) Cancelar el pago directo: revierte los minutos pagados y deja de contar como "Pagado".
+                accumulation.PaidMinutes -= movement.Minutes;
                 accumulation.UpdatedAt = now;
 
                 _context.overtimeMovementLogs.Add(new OvertimeMovementLog
@@ -1085,6 +1085,30 @@ namespace PrenominaApi.Services.Prenomina
                     SourceDate = movement.SourceDate,
                     OvertimePaymentRequestId = request.Id,
                     Notes = $"Cancelación de solicitud de pago: {reason}",
+                    ByUserId = byUser,
+                    RelatedMovementId = movement.Id,
+                    CreatedAt = now
+                });
+
+                // 2) Devolver las horas al balance acumulado (estado previo a la solicitud): se crea
+                //    una acumulación por los mismos minutos/fecha, de modo que el día queda como
+                //    "Acumulado" y suma al balance disponible (no como "pendiente").
+                accumulation.AccumulatedMinutes += movement.Minutes;
+                accumulation.UpdatedAt = now;
+
+                _context.overtimeMovementLogs.Add(new OvertimeMovementLog
+                {
+                    OvertimeAccumulationId = accumulation.Id,
+                    EmployeeCode = movement.EmployeeCode,
+                    CompanyId = companyId,
+                    MovementType = OvertimeMovementType.Accumulation,
+                    Minutes = movement.Minutes,
+                    BalanceAfter = accumulation.AccumulatedMinutes,
+                    SourceDate = movement.SourceDate,
+                    OriginalCheckIn = movement.OriginalCheckIn,
+                    OriginalCheckOut = movement.OriginalCheckOut,
+                    OvertimePaymentRequestId = request.Id,
+                    Notes = $"Reintegro a balance por cancelación de solicitud: {reason}",
                     ByUserId = byUser,
                     RelatedMovementId = movement.Id,
                     CreatedAt = now
@@ -1111,7 +1135,7 @@ namespace PrenominaApi.Services.Prenomina
             return new OvertimeOperationResult
             {
                 Success = true,
-                Message = $"Solicitud de pago eliminada. Se revirtieron {cancelledCount} pago(s); las horas volvieron a pendientes."
+                Message = $"Solicitud de pago eliminada. Se revirtieron {cancelledCount} pago(s); las horas volvieron al balance."
             };
         }
 

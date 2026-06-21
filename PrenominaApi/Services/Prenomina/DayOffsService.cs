@@ -171,14 +171,15 @@ namespace PrenominaApi.Services.Prenomina
                 var allowedCenterCodes = ResolveCenterCodes(getWorkedDayOff.CompanyId, getWorkedDayOff.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == getWorkedDayOff.CompanyId &&
-                    (getWorkedDayOff.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
+                    (allowedCenterCodes == null ? true : allowedCenterCodes.Contains((int)item.Codigo))
                 );
             }
             else
             {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, getWorkedDayOff.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == getWorkedDayOff.CompanyId && 
-                    (getWorkedDayOff.Tenant != "-999" ? item.Supervisor == Convert.ToDecimal(getWorkedDayOff.Tenant) : true)
+                    item => item.Company == getWorkedDayOff.CompanyId &&
+                    (allowedSupervisors == null ? true : allowedSupervisors.Contains(item.Supervisor))
                 );
             }
 
@@ -316,14 +317,15 @@ namespace PrenominaApi.Services.Prenomina
                 var allowedCenterCodes = ResolveCenterCodes(getWorkedSunday.CompanyId, getWorkedSunday.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == getWorkedSunday.CompanyId &&
-                    (getWorkedSunday.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
+                    (allowedCenterCodes == null ? true : allowedCenterCodes.Contains((int)item.Codigo))
                 );
             }
             else
             {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, getWorkedSunday.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == getWorkedSunday.CompanyId &&
-                    (getWorkedSunday.Tenant != "-999" ? item.Supervisor == Convert.ToDecimal(getWorkedSunday.Tenant) : true)
+                    (allowedSupervisors == null ? true : allowedSupervisors.Contains(item.Supervisor))
                 );
             }
 
@@ -546,15 +548,16 @@ namespace PrenominaApi.Services.Prenomina
                 keys = _keyRepository.GetContextEntity().Where(
                     item => item.Company == filterEmployee.CompanyId &&
                     item.TypeNom == filterEmployee.TypeNom &&
-                    (filterEmployee.Tenant != "-999" ? allowedCenterCodes.Contains((int)item.Codigo) : true)
+                    (allowedCenterCodes == null ? true : allowedCenterCodes.Contains((int)item.Codigo))
                 ).ToList();
             }
             else
             {
+                var allowedSupervisors = CenterScope.SupervisorTargets(_globalPropertyService, filterEmployee.Tenant);
                 keys = _keyRepository.GetContextEntity().Where(
-                    item => item.Company == filterEmployee.CompanyId && 
+                    item => item.Company == filterEmployee.CompanyId &&
                     item.TypeNom == filterEmployee.TypeNom &&
-                    (filterEmployee.Tenant != "-999" ? item.Supervisor == Convert.ToDecimal(filterEmployee.Tenant) : true)
+                    (allowedSupervisors == null ? true : allowedSupervisors.Contains(item.Supervisor))
                 ).ToList();
             }
 
@@ -1131,23 +1134,18 @@ namespace PrenominaApi.Services.Prenomina
             return worksheet;
         }
 
-        // Códigos de empleado del centro seleccionado, normalizando ceros a la izquierda
-        // ('04' del empleado vs '4' del header). Vacío cuando no aplica (TODOS).
-        private HashSet<int> ResolveCenterCodes(decimal companyId, string tenant)
+        // Códigos de empleado permitidos según el centro seleccionado, normalizando ceros a la
+        // izquierda ('04' del empleado vs '4' del header). null = sin restricción por centro
+        // (sudo + TODOS); para no-sudo + TODOS se limita a sus centros asignados.
+        private HashSet<int>? ResolveCenterCodes(decimal companyId, string tenant)
         {
-            if (tenant == "-999" || tenant == "all")
-            {
-                return new HashSet<int>();
-            }
-
-            var target = TenantCode.Normalize(tenant);
-            return _keyRepository.GetContextEntity().AsNoTracking()
+            var rows = _keyRepository.GetContextEntity().AsNoTracking()
                 .Where(k => k.Company == companyId)
                 .Select(k => new { k.Codigo, k.Center })
-                .ToList()
-                .Where(r => TenantCode.Normalize(r.Center) == target)
-                .Select(r => (int)r.Codigo)
-                .ToHashSet();
+                .ToList();
+
+            return CenterScope.ResolveAllowedCenterCodes(
+                _globalPropertyService, rows, r => r.Codigo, r => r.Center, tenant);
         }
     }
 }

@@ -1,0 +1,11 @@
+bin/
+obj/
+dist/
+
+# Los payloads se generan con publish/ng build, no se versionan
+api/
+!api/.gitkeep
+web/
+!web/.gitkeep
+webroot/
+!webroot/.gitkeep

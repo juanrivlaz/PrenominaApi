@@ -1,4 +1,5 @@
 ﻿using PrenominaApi.Models.Dto;
+using PrenominaApi.Models.Dto.Output;
 using PrenominaApi.Models.Prenomina.Enums;
 using PrenominaApi.Models.Prenomina;
 using PrenominaApi.Services.Prenomina;
@@ -44,6 +45,23 @@ namespace PrenominaApi.Middlewares
                 // Centro/supervisor seleccionado (header "tenant"); "-999" = TODOS.
                 var tenantHeader = context.Request.Headers["tenant"].FirstOrDefault();
                 _globalPropertyService.Tenant = string.IsNullOrWhiteSpace(tenantHeader) ? "-999" : tenantHeader;
+
+                // Alcance del usuario: para no-sudo, "TODOS" se limita a los centros/supervisores
+                // asignados (de la empresa activa). UserMiddleware (ejecutado antes) deja los
+                // detalles en context.Items.
+                var userDetails = context.Items["UserDetails"] as UserDetails;
+                _globalPropertyService.IsSudo = userDetails?.role?.Code == RoleCode.Sudo;
+
+                decimal? activeCompany = decimal.TryParse(context.Request.Headers["company"].FirstOrDefault(), out var comp) ? comp : null;
+
+                _globalPropertyService.AssignedCenterIds = userDetails?.Centers?
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Id) && (activeCompany == null || c.Company == activeCompany))
+                    .Select(c => c.Id.Trim())
+                    .ToList() ?? new List<string>();
+                _globalPropertyService.AssignedSupervisorIds = userDetails?.Supervisors?
+                    .Where(s => activeCompany == null || s.Company == activeCompany)
+                    .Select(s => s.Id)
+                    .ToList() ?? new List<decimal>();
 
                 await _next(context);
             }
