@@ -32,7 +32,7 @@ namespace PrenominaApi.Models.Dto.Output.OvertimePayment
         public required DateTime CreatedAt { get; set; }
         public string? Notes { get; set; }
         /// <summary>Fechas origen de las horas extras que cubre la papeleta (movimientos de pago directo).</summary>
-        public List<DateTime> OvertimeDates { get; set; } = new();
+        public List<DateOnly> OvertimeDates { get; set; } = new();
         public List<AbsenceRequestApprovalStepOutput> ApprovalChain { get; set; } = new();
     }
 }
