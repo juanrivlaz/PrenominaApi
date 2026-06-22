@@ -155,6 +155,7 @@ namespace PrenominaApi.Services
                     ai.TimeOffRequest,
                     ai.UpdatedAt,
                     IsAdditional = ai.ItemIncidentCode != null && ai.ItemIncidentCode.IsAdditional,
+                    RequiredApproval = ai.ItemIncidentCode != null && ai.ItemIncidentCode.RequiredApproval,
                     Label = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Label : ""
                 })
                 .ToList();
@@ -347,6 +348,7 @@ namespace PrenominaApi.Services
                             IsAdditional = ai.IsAdditional,
                             Label = ai.Label,
                             TimeOffRequest = ai.TimeOffRequest,
+                            FromApprovalFlow = ai.TimeOffRequest || ai.RequiredApproval,
                             UpdatedAt = ai.UpdatedAt
                         }).ToList()
                     });
@@ -800,6 +802,7 @@ namespace PrenominaApi.Services
                     ai.TimeOffRequest,
                     ai.UpdatedAt,
                     IsAdditional = ai.ItemIncidentCode != null && ai.ItemIncidentCode.IsAdditional,
+                    RequiredApproval = ai.ItemIncidentCode != null && ai.ItemIncidentCode.RequiredApproval,
                     Label = ai.ItemIncidentCode != null ? ai.ItemIncidentCode.Label : ""
                 })
                 .ToList();
@@ -870,6 +873,7 @@ namespace PrenominaApi.Services
                             IsAdditional = ai.IsAdditional,
                             Label = ai.Label,
                             TimeOffRequest = ai.TimeOffRequest,
+                            FromApprovalFlow = ai.TimeOffRequest || ai.RequiredApproval,
                             UpdatedAt = ai.UpdatedAt
                         }).ToList()
                     };
