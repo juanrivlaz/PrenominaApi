@@ -373,15 +373,33 @@ namespace ConnectZK
                 // Congelar el dispositivo mientras se modifica al usuario, igual que en SetUsers.
                 zkemkeeper.EnableDevice(1, false);
 
-                // Usar la API SSR (string) consistente con el resto del codigo.
-                bool ok = zkemkeeper.SSR_EnableUser(1, enrollNumber.ToString(), enable);
+                // En terminales de asistencia ZK el flag "Enabled=false" NO impide checar. La via
+                // documentada y NO destructiva es vencer la VIGENCIA del usuario (SetUserValidDate):
+                //   - Bloquear  -> Expires=1 (limita por rango de fechas) con una EndDate ya vencida.
+                //     El reloj trata la cuenta como expirada y rechaza la checada, conservando
+                //     huellas/rostro/tarjeta.
+                //   - Desbloquear -> Expires=0 (sin limite de vigencia).
+                // Solo aplica a firmware "new architecture" (TFT/IFACE). Si el reloj no lo soporta,
+                // SetUserValidDate devuelve false (codigo -100) y se debe usar el borrado (DeleteUser).
+                string enroll = enrollNumber.ToString();
+                bool ok;
+
+                if (enable)
+                {
+                    ok = zkemkeeper.SetUserValidDate(1, enroll, 0, 0, string.Empty, string.Empty);
+                }
+                else
+                {
+                    // Rango en el pasado lejano => ya vencido sin importar la fecha actual del reloj.
+                    ok = zkemkeeper.SetUserValidDate(1, enroll, 1, 0, "2000-01-01", "2000-01-01");
+                }
 
                 if (!ok)
                 {
                     int errorCode = 0;
                     zkemkeeper.GetLastError(ref errorCode);
                     throw new Exception(
-                        $"No se pudo {(enable ? "habilitar" : "deshabilitar")} el usuario {enrollNumber}, codigo: {errorCode}");
+                        $"No se pudo {(enable ? "habilitar" : "deshabilitar")} la vigencia del usuario {enrollNumber}, codigo: {errorCode}");
                 }
 
                 // CRITICO: sin RefreshData el cambio queda en buffer y el reloj sigue aceptando checadas.
