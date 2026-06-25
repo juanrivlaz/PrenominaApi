@@ -369,9 +369,28 @@ namespace ConnectZK
             try
             {
                 EnsureConnected();
-                zkemkeeper.EnableUser(1, enrollNumber, 1, 0, enable);
-            } finally
+
+                // Congelar el dispositivo mientras se modifica al usuario, igual que en SetUsers.
+                zkemkeeper.EnableDevice(1, false);
+
+                // Usar la API SSR (string) consistente con el resto del codigo.
+                bool ok = zkemkeeper.SSR_EnableUser(1, enrollNumber.ToString(), enable);
+
+                if (!ok)
+                {
+                    int errorCode = 0;
+                    zkemkeeper.GetLastError(ref errorCode);
+                    throw new Exception(
+                        $"No se pudo {(enable ? "habilitar" : "deshabilitar")} el usuario {enrollNumber}, codigo: {errorCode}");
+                }
+
+                // CRITICO: sin RefreshData el cambio queda en buffer y el reloj sigue aceptando checadas.
+                zkemkeeper.RefreshData(1);
+            }
+            finally
             {
+                // Rehabilitar el dispositivo siempre, aunque ocurra un error.
+                try { zkemkeeper.EnableDevice(1, true); } catch { }
                 Disconnect();
             }
         }
